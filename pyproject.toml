@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "initial-resy-ui"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+	"psycopg2-binary>=2.9.10",
+	"python-dotenv>=1.0.1",
+	"requests>=2.32.3",
+	"streamlit>=1.41.1",
+]
+
+[project.scripts]
+initial-resy-ui = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
