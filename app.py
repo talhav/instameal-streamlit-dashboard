@@ -1,3 +1,4 @@
+import html
 import os
 
 import psycopg2
@@ -19,7 +20,6 @@ DEFAULT_DB_PORT = os.getenv("DB_PORT")
 GOAL_OPTIONS = {
     "Weight loss": "weight_loss",
     "Weight gain": "weight_gain",
-    "Maintenance": "maintenance",
 }
 GENDER_OPTIONS = {
     "Male": "male",
@@ -31,6 +31,80 @@ ACTIVITY_LEVEL_OPTIONS = {
     "Regular walking": "regular_walking",
     "Physical intense work": "physical_intense_work",
 }
+
+DEFAULT_REQUEST = {
+    "user_goal": "weight_gain",
+    "gender": "male",
+    "age": 30,
+    "height_cm": 180.0,
+    "current_weight_kg": 80.0,
+    "target_weight_kg": 90.0,
+    "activity_level": "physical_intense_work",
+    "menu_id": 91,
+    "plan_duration_days": 28,
+    "meals": {
+        "breakfast": 1,
+        "lunch": 1,
+        "dinner": 3,
+        "snack": 0,
+        "drink": 1,
+    },
+}
+
+
+def inject_styles():
+    st.markdown(
+        """
+        <style>
+        .reco-card {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 18px;
+            overflow: hidden;
+            background: linear-gradient(180deg, rgba(20, 24, 33, 0.98), rgba(14, 18, 24, 0.98));
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+            margin-bottom: 16px;
+        }
+
+        .reco-card-image img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .reco-card-body {
+            padding: 16px 16px 18px 16px;
+        }
+
+        .reco-card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            line-height: 1.35;
+            margin: 0 0 8px 0;
+            color: #f3f5f7;
+        }
+
+        .reco-card-description {
+            font-size: 0.92rem;
+            line-height: 1.5;
+            color: rgba(243, 245, 247, 0.78);
+            margin: 0;
+        }
+
+        .meal-section {
+            margin-top: 20px;
+            margin-bottom: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .meal-section h3 {
+            margin-bottom: 4px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def get_product_details(product_ids):
@@ -49,13 +123,20 @@ def get_product_details(product_ids):
 
         placeholders = ",".join(["%s"] * len(product_ids))
         cursor.execute(
-            f"SELECT id, title, kcal FROM products WHERE id IN ({placeholders})",
+            f"SELECT id, title, description, image FROM products WHERE id IN ({placeholders})",
             tuple(product_ids),
         )
 
-        db_results = {row[0]: f"{row[1]} ({row[2]} Kcal)" for row in cursor.fetchall()}
+        db_results = {
+            row[0]: {
+                "title": row[1] or "Unknown title",
+                "description": row[2] or "",
+                "image": row[3] or "",
+            }
+            for row in cursor.fetchall()
+        }
         ordered_results = [
-            f"ID: {product_id} | {db_results.get(product_id, 'Unknown')}"
+            {"id": product_id, **db_results.get(product_id, {})}
             for product_id in product_ids
         ]
 
@@ -63,7 +144,10 @@ def get_product_details(product_ids):
         connection.close()
         return ordered_results
     except Exception:
-        return [f"ID {product_id} (DB Connection Error)" for product_id in product_ids]
+        return [
+            {"id": product_id, "title": "DB Connection Error", "description": "", "image": ""}
+            for product_id in product_ids
+        ]
 
 
 def build_meals_request():
@@ -110,19 +194,51 @@ def render_recommendation_panel(result):
         meal_type = recommendation.get("meal_type", "unknown")
         product_ids = recommendation.get("products", [])
 
-        st.subheader(f"{meal_type.title()}")
+        st.markdown(f'<div class="meal-section"><h3>{meal_type.title()}</h3></div>', unsafe_allow_html=True)
         if not product_ids:
             st.warning("Empty result set for this meal.")
             continue
 
-        for detail in get_product_details(product_ids):
-            st.write(f"- {detail}")
+        product_details = get_product_details(product_ids)
+        for start_index in range(0, len(product_details), 3):
+            row_cards = product_details[start_index : start_index + 3]
+            card_columns = st.columns(3, gap="medium")
+
+            for column_index, detail in enumerate(row_cards):
+                with card_columns[column_index]:
+                    title = html.escape(detail.get("title", "Unknown product"))
+                    description = html.escape(detail.get("description", "")).replace("\n", "<br>")
+                    image_url = html.escape(detail.get("image", ""))
+
+                    st.markdown('<div class="reco-card">', unsafe_allow_html=True)
+                    if image_url:
+                        st.markdown(
+                            f'<div class="reco-card-image"><img src="{image_url}" alt="{title}" /></div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            '<div class="reco-card-image"><div style="height:150px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);font-weight:600;">No image available</div></div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    st.markdown(
+                        f'''
+                        <div class="reco-card-body">
+                            <div class="reco-card-title">{title}</div>
+                            <p class="reco-card-description">{description}</p>
+                        </div>
+                        ''',
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown('</div>', unsafe_allow_html=True)
 
     with st.expander("Raw API response", expanded=False):
         st.json(response_data)
 
 
 st.set_page_config(page_title="Instameals RecSys UI", layout="wide")
+inject_styles()
 
 if "recommendation_result" not in st.session_state:
     st.session_state.recommendation_result = None
@@ -137,28 +253,66 @@ with left_panel:
     st.header("Request Form")
 
     with st.form("recommendation_form", clear_on_submit=False):
-        user_goal_label = st.selectbox("User Goal", list(GOAL_OPTIONS.keys()))
-        gender_label = st.selectbox("Gender", list(GENDER_OPTIONS.keys()))
-        activity_level_label = st.selectbox("Activity Level", list(ACTIVITY_LEVEL_OPTIONS.keys()))
+        profile_panel, meals_panel = st.columns(2, gap="large")
 
-        age = st.number_input("Age", min_value=1, max_value=120, value=30, step=1)
-        height_cm = st.number_input("Height (cm)", min_value=0.0, value=180.0, step=0.1)
-        current_weight_kg = st.number_input("Current Weight (kg)", min_value=0.0, value=80.0, step=0.1)
-        target_weight_kg = st.number_input("Target Weight (kg)", min_value=0.0, value=90.0, step=0.1)
-        menu_id = st.number_input("Menu ID", min_value=1, value=91, step=1)
+        with profile_panel:
+            st.subheader("Profile")
+            user_goal_label = st.selectbox(
+                "User Goal",
+                list(GOAL_OPTIONS.keys()),
+                index=list(GOAL_OPTIONS.values()).index(DEFAULT_REQUEST["user_goal"]),
+            )
+            gender_label = st.selectbox(
+                "Gender",
+                list(GENDER_OPTIONS.keys()),
+                index=list(GENDER_OPTIONS.values()).index(DEFAULT_REQUEST["gender"]),
+            )
+            activity_level_label = st.selectbox(
+                "Activity Level",
+                list(ACTIVITY_LEVEL_OPTIONS.keys()),
+                index=list(ACTIVITY_LEVEL_OPTIONS.values()).index(DEFAULT_REQUEST["activity_level"]),
+            )
 
-        st.subheader("Meals")
-        meal_cols = st.columns(5)
-        with meal_cols[0]:
-            breakfast_qty = st.number_input("Breakfast Qty", min_value=0, value=1, step=1)
-        with meal_cols[1]:
-            lunch_qty = st.number_input("Lunch Qty", min_value=0, value=1, step=1)
-        with meal_cols[2]:
-            dinner_qty = st.number_input("Dinner Qty", min_value=0, value=2, step=1)
-        with meal_cols[3]:
-            snack_qty = st.number_input("Snack Qty", min_value=0, value=0, step=1)
-        with meal_cols[4]:
-            drink_qty = st.number_input("Drink Qty", min_value=0, value=2, step=1)
+            age = st.number_input("Age", min_value=1, max_value=120, value=DEFAULT_REQUEST["age"], step=1)
+            height_cm = st.number_input("Height (cm)", min_value=0.0, value=DEFAULT_REQUEST["height_cm"], step=0.1)
+            current_weight_kg = st.number_input(
+                "Current Weight (kg)",
+                min_value=0.0,
+                value=DEFAULT_REQUEST["current_weight_kg"],
+                step=0.1,
+            )
+            target_weight_kg = st.number_input(
+                "Target Weight (kg)",
+                min_value=0.0,
+                value=DEFAULT_REQUEST["target_weight_kg"],
+                step=0.1,
+            )
+            menu_id = st.number_input("Menu ID", min_value=1, value=DEFAULT_REQUEST["menu_id"], step=1)
+            plan_duration_days = st.number_input(
+                "Plan Duration (days)",
+                min_value=1,
+                value=DEFAULT_REQUEST["plan_duration_days"],
+                step=1,
+            )
+
+        with meals_panel:
+            st.subheader("Meals")
+            st.caption("Enter quantities for each meal type.")
+            breakfast_qty = st.number_input(
+                "Breakfast Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["breakfast"], step=1
+            )
+            lunch_qty = st.number_input(
+                "Lunch Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["lunch"], step=1
+            )
+            dinner_qty = st.number_input(
+                "Dinner Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["dinner"], step=1
+            )
+            snack_qty = st.number_input(
+                "Snack Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["snack"], step=1
+            )
+            drink_qty = st.number_input(
+                "Drink Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["drink"], step=1
+            )
 
         meals_requested = build_meals_request()
 
@@ -173,6 +327,7 @@ with left_panel:
                     "target_weight_kg": float(target_weight_kg),
                     "activity_level": ACTIVITY_LEVEL_OPTIONS[activity_level_label],
                     "menu_id": int(menu_id),
+                    "plan_duration_days": int(plan_duration_days),
                     "meals": meals_requested,
                 }
             )
@@ -189,6 +344,7 @@ with left_panel:
             "target_weight_kg": float(target_weight_kg),
             "activity_level": ACTIVITY_LEVEL_OPTIONS[activity_level_label],
             "menu_id": int(menu_id),
+            "plan_duration_days": int(plan_duration_days),
             "meals": meals_requested,
         }
 
