@@ -1,5 +1,7 @@
 import html
+import json
 import os
+from textwrap import dedent
 
 import psycopg2
 import requests
@@ -56,50 +58,148 @@ def inject_styles():
     st.markdown(
         """
         <style>
+        /* ── Global zoom ── */
+        html { zoom: 0.8; }
+
+        /* ── Card shell ── */
         .reco-card {
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 16px;
             overflow: hidden;
-            background: linear-gradient(180deg, rgba(20, 24, 33, 0.98), rgba(14, 18, 24, 0.98));
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
-            margin-bottom: 16px;
+            background: linear-gradient(160deg, rgba(22, 30, 44, 0.97), rgba(12, 17, 26, 0.97));
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            margin-bottom: 18px;
+            transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+        }
+        .reco-card:hover {
+            border-color: rgba(255, 193, 7, 0.30);
+            box-shadow: 0 14px 36px rgba(0, 0, 0, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            transform: translateY(-4px);
         }
 
-        .reco-card-image img {
+        /* ── Image ── */
+        .reco-card-image-wrapper {
+            position: relative;
             width: 100%;
-            height: 150px;
+            height: 180px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.25);
+        }
+        .reco-card-image-wrapper img {
+            width: 100%;
+            height: 100%;
             object-fit: cover;
             display: block;
+            transition: transform 0.35s ease;
+        }
+        .reco-card:hover .reco-card-image-wrapper img { transform: scale(1.07); }
+        .reco-card-no-image {
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, rgba(30,40,55,0.8), rgba(15,20,28,0.9));
+            color: rgba(255,255,255,0.25);
+            font-size: 0.85rem;
+            font-weight: 500;
+            letter-spacing: 0.5px;
         }
 
+        /* ── Body ── */
         .reco-card-body {
-            padding: 16px 16px 18px 16px;
+            padding: 14px 16px 6px 16px;
         }
-
         .reco-card-title {
-            font-size: 1.1rem;
+            font-size: 1rem;
             font-weight: 700;
             line-height: 1.35;
-            margin: 0 0 8px 0;
-            color: #f3f5f7;
+            margin: 0 0 6px 0;
+            color: #ffffff;
+            letter-spacing: -0.3px;
         }
-
         .reco-card-description {
-            font-size: 0.92rem;
-            line-height: 1.5;
-            color: rgba(243, 245, 247, 0.78);
+            font-size: 0.80rem;
+            line-height: 1.45;
+            color: rgba(255, 255, 255, 0.55);
             margin: 0;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
 
+        /* ── Nutrition strip (NEW) ── */
+        .reco-nut-section {
+            padding: 10px 16px 14px 16px;
+            border-top: 1px solid rgba(255, 193, 7, 0.12);
+            margin-top: 10px;
+        }
+        .reco-nut-heading {
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: rgba(255, 193, 7, 0.60);
+            margin-bottom: 9px;
+        }
+        .reco-nut-row {
+            display: flex;
+            gap: 6px;
+        }
+        .reco-nut-pill {
+            flex: 1;
+            min-width: 0;
+            background: rgba(255, 193, 7, 0.07);
+            border-left: 2px solid rgba(255, 193, 7, 0.55);
+            border-radius: 0 7px 7px 0;
+            padding: 6px 8px 6px 9px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .reco-nut-pill:hover {
+            background: rgba(255, 193, 7, 0.13);
+            border-color: #ffc107;
+        }
+        .reco-nut-val {
+            font-size: 0.88rem;
+            font-weight: 800;
+            color: #ffc107;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.1;
+        }
+        .reco-nut-lbl {
+            font-size: 0.60rem;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.40);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        .reco-nut-empty {
+            padding: 8px 16px 12px 16px;
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.25);
+            font-style: italic;
+        }
+
+        /* ── Meal section header ── */
         .meal-section {
-            margin-top: 20px;
-            margin-bottom: 8px;
-            padding-top: 8px;
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            margin-top: 24px;
+            margin-bottom: 12px;
+            padding-top: 12px;
+            border-top: 2px solid rgba(255, 193, 7, 0.2);
         }
-
         .meal-section h3 {
-            margin-bottom: 4px;
+            margin-bottom: 2px;
+            color: #ffc107;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.95rem;
+            font-weight: 700;
         }
         </style>
         """,
@@ -123,18 +223,21 @@ def get_product_details(product_ids):
 
         placeholders = ",".join(["%s"] * len(product_ids))
         cursor.execute(
-            f"SELECT id, title, description, image FROM products WHERE id IN ({placeholders})",
+            f"SELECT id, title, description, image, nutrition_per_serving FROM products WHERE id IN ({placeholders})",
             tuple(product_ids),
         )
 
-        db_results = {
-            row[0]: {
+        db_results = {}
+        for row in cursor.fetchall():
+            nutrition_data = parse_nutrition_data(row[4])
+            
+            db_results[row[0]] = {
                 "title": row[1] or "Unknown title",
                 "description": row[2] or "",
                 "image": row[3] or "",
+                "nutrition": nutrition_data,
             }
-            for row in cursor.fetchall()
-        }
+        
         ordered_results = [
             {"id": product_id, **db_results.get(product_id, {})}
             for product_id in product_ids
@@ -145,9 +248,80 @@ def get_product_details(product_ids):
         return ordered_results
     except Exception:
         return [
-            {"id": product_id, "title": "DB Connection Error", "description": "", "image": ""}
+            {"id": product_id, "title": "DB Connection Error", "description": "", "image": "", "nutrition": {}}
             for product_id in product_ids
         ]
+
+
+def parse_nutrition_data(raw_value):
+    if not raw_value:
+        return {}
+
+    if isinstance(raw_value, dict):
+        return raw_value
+
+    if isinstance(raw_value, str):
+        try:
+            parsed_value = json.loads(raw_value)
+            return parsed_value if isinstance(parsed_value, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+    return {}
+
+
+def build_nutrition_html(nutrition):
+    """Return a self-contained HTML string for the nutrition strip."""
+    nutrition_fields = [
+        ("calories", "Calories"),
+        ("protein", "Protein"),
+        ("carbs", "Carbs"),
+        ("fat", "Fat"),
+    ]
+    items = [
+        (label, nutrition.get(key))
+        for key, label in nutrition_fields
+        if nutrition.get(key) is not None
+    ]
+
+    if not items:
+        return '<div class="reco-nut-empty">Nutrition data unavailable</div>'
+
+    pills_html = "".join(
+        f'''
+        <div class="reco-nut-pill">
+            <span class="reco-nut-val">{html.escape(str(value))}</span>
+            <span class="reco-nut-lbl">{label}</span>
+        </div>'''
+        for label, value in items
+    )
+
+    return f'''
+    <div class="reco-nut-section">
+        <div class="reco-nut-heading">Nutrition per serving</div>
+        <div class="reco-nut-row">{pills_html}</div>
+    </div>'''
+
+
+def build_card_html(title, description, image_url, nutrition):
+    """Return a complete card HTML block so Streamlit renders it as one unit."""
+    if image_url:
+        image_html = f'<div class="reco-card-image-wrapper"><img src="{image_url}" alt="{title}" loading="lazy" /></div>'
+    else:
+        image_html = '<div class="reco-card-no-image">No image available</div>'
+
+    nutrition_html = build_nutrition_html(nutrition)
+
+    return dedent(f'''
+        <div class="reco-card">
+            {image_html}
+            <div class="reco-card-body">
+                <div class="reco-card-title">{title}</div>
+                <p class="reco-card-description">{description}</p>
+            </div>
+            {nutrition_html}
+        </div>
+    ''').strip()
 
 
 def build_meals_request():
@@ -207,31 +381,17 @@ def render_recommendation_panel(result):
             for column_index, detail in enumerate(row_cards):
                 with card_columns[column_index]:
                     title = html.escape(detail.get("title", "Unknown product"))
-                    description = html.escape(detail.get("description", "")).replace("\n", "<br>")
+                    # Strip any raw HTML tags from description before escaping
+                    raw_desc = detail.get("description", "")
+                    description = html.escape(raw_desc).replace("\n", "<br>")
                     image_url = html.escape(detail.get("image", ""))
+                    nutrition = detail.get("nutrition", {})
 
-                    st.markdown('<div class="reco-card">', unsafe_allow_html=True)
-                    if image_url:
-                        st.markdown(
-                            f'<div class="reco-card-image"><img src="{image_url}" alt="{title}" /></div>',
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            '<div class="reco-card-image"><div style="height:150px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);font-weight:600;">No image available</div></div>',
-                            unsafe_allow_html=True,
-                        )
-
+                    # Render the entire card as one coherent HTML block
                     st.markdown(
-                        f'''
-                        <div class="reco-card-body">
-                            <div class="reco-card-title">{title}</div>
-                            <p class="reco-card-description">{description}</p>
-                        </div>
-                        ''',
+                        build_card_html(title, description, image_url, nutrition),
                         unsafe_allow_html=True,
                     )
-                    st.markdown('</div>', unsafe_allow_html=True)
 
     with st.expander("Raw API response", expanded=False):
         st.json(response_data)
