@@ -58,9 +58,6 @@ def inject_styles():
     st.markdown(
         """
         <style>
-        /* ── Global zoom ── */
-        html { zoom: 0.8; }
-
         /* ── Card shell ── */
         .reco-card {
             border: 1px solid rgba(255, 255, 255, 0.10);
