@@ -101,6 +101,21 @@ def inject_styles():
             font-weight: 500;
             letter-spacing: 0.5px;
         }
+        .reco-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: linear-gradient(135deg, #ffc107, #ff9800);
+            color: #111;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.70rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
 
         /* ── Body ── */
         .reco-card-body {
@@ -204,8 +219,8 @@ def inject_styles():
     )
 
 
-def get_product_details(product_ids):
-    if not product_ids:
+def get_all_menu_products(menu_id):
+    if not menu_id:
         return []
 
     try:
@@ -218,36 +233,35 @@ def get_product_details(product_ids):
         )
         cursor = connection.cursor()
 
-        placeholders = ",".join(["%s"] * len(product_ids))
         cursor.execute(
-            f"SELECT id, title, description, image, nutrition_per_serving FROM products WHERE id IN ({placeholders})",
-            tuple(product_ids),
+            """
+            SELECT p.id, p.title, p.description, p.image, p.nutrition_per_serving, p.meal_type
+            FROM products p
+            JOIN menu_products mp ON p.id = mp.product_id
+            WHERE mp.menu_id = %s
+            """,
+            (menu_id,)
         )
 
-        db_results = {}
+        db_results = []
         for row in cursor.fetchall():
             nutrition_data = parse_nutrition_data(row[4])
-            
-            db_results[row[0]] = {
+            meal_types = [m.lower() for m in (row[5] or [])]
+            db_results.append({
+                "id": row[0],
                 "title": row[1] or "Unknown title",
                 "description": row[2] or "",
                 "image": row[3] or "",
                 "nutrition": nutrition_data,
-            }
+                "meal_types": meal_types
+            })
         
-        ordered_results = [
-            {"id": product_id, **db_results.get(product_id, {})}
-            for product_id in product_ids
-        ]
-
         cursor.close()
         connection.close()
-        return ordered_results
-    except Exception:
-        return [
-            {"id": product_id, "title": "DB Connection Error", "description": "", "image": "", "nutrition": {}}
-            for product_id in product_ids
-        ]
+        return db_results
+    except Exception as e:
+        st.error(f"DB Connection Error: {e}")
+        return []
 
 
 def parse_nutrition_data(raw_value):
@@ -300,12 +314,14 @@ def build_nutrition_html(nutrition):
     </div>'''
 
 
-def build_card_html(title, description, image_url, nutrition):
+def build_card_html(title, description, image_url, nutrition, is_recommended=False):
     """Return a complete card HTML block so Streamlit renders it as one unit."""
+    badge_html = '<div class="reco-badge">⭐ Recommended</div>' if is_recommended else ''
+
     if image_url:
-        image_html = f'<div class="reco-card-image-wrapper"><img src="{image_url}" alt="{title}" loading="lazy" /></div>'
+        image_html = f'<div class="reco-card-image-wrapper">{badge_html}<img src="{image_url}" alt="{title}" loading="lazy" /></div>'
     else:
-        image_html = '<div class="reco-card-no-image">No image available</div>'
+        image_html = f'<div class="reco-card-no-image">{badge_html}No image available</div>'
 
     nutrition_html = build_nutrition_html(nutrition)
 
@@ -353,6 +369,8 @@ def render_recommendation_panel(result):
         return
 
     response_data = result.get("response", {})
+    menu_id = result.get("menu_id")
+
     st.success(
         f"Estimated calories per day: {response_data.get('est_calories_per_day', 'Unknown')}"
     )
@@ -361,32 +379,48 @@ def render_recommendation_panel(result):
     if not recommendations:
         st.warning("The API returned no recommendations.")
 
+    recommended_map = {}
+    for rec in recommendations:
+        meal_type_key = rec.get("meal_type", "unknown").lower()
+        recommended_map[meal_type_key] = rec.get("products", [])
+
+    all_products = get_all_menu_products(menu_id) if menu_id else []
+    
+    products_by_meal = {}
+    for prod in all_products:
+        for m in prod.get("meal_types", []):
+            products_by_meal.setdefault(m, []).append(prod)
+
     for recommendation in recommendations:
         meal_type = recommendation.get("meal_type", "unknown")
-        product_ids = recommendation.get("products", [])
-
+        meal_key = meal_type.lower()
         st.markdown(f'<div class="meal-section"><h3>{meal_type.title()}</h3></div>', unsafe_allow_html=True)
-        if not product_ids:
-            st.warning("Empty result set for this meal.")
+        
+        meal_products = products_by_meal.get(meal_key, [])
+        if not meal_products:
+            st.warning("No products found in the database for this meal type.")
             continue
 
-        product_details = get_product_details(product_ids)
-        for start_index in range(0, len(product_details), 3):
-            row_cards = product_details[start_index : start_index + 3]
+        # Sort meal_products so that recommended items appear at the very top
+        recommended_ids = recommended_map.get(meal_key, [])
+        meal_products.sort(key=lambda p: p["id"] in recommended_ids, reverse=True)
+
+        for start_index in range(0, len(meal_products), 3):
+            row_cards = meal_products[start_index : start_index + 3]
             card_columns = st.columns(3, gap="medium")
 
             for column_index, detail in enumerate(row_cards):
                 with card_columns[column_index]:
                     title = html.escape(detail.get("title", "Unknown product"))
-                    # Strip any raw HTML tags from description before escaping
                     raw_desc = detail.get("description", "")
                     description = html.escape(raw_desc).replace("\n", "<br>")
                     image_url = html.escape(detail.get("image", ""))
                     nutrition = detail.get("nutrition", {})
+                    
+                    is_rec = detail["id"] in recommended_map.get(meal_key, [])
 
-                    # Render the entire card as one coherent HTML block
                     st.markdown(
-                        build_card_html(title, description, image_url, nutrition),
+                        build_card_html(title, description, image_url, nutrition, is_recommended=is_rec),
                         unsafe_allow_html=True,
                     )
 
@@ -452,6 +486,21 @@ with left_panel:
                 step=1,
             )
 
+            st.divider()
+            st.subheader("Delivery Days")
+            days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+            selected_days = st.pills(
+                "Select Days",
+                options=days_options,
+                default=["Monday", "Tuesday"],
+                selection_mode="multi",
+                label_visibility="collapsed"
+            )
+            # st.pills returns None if nothing is selected, so we handle it:
+            if selected_days is None:
+                selected_days = []
+            number_of_days = len(selected_days)
+
         with meals_panel:
             st.subheader("Meals")
             st.caption("Enter quantities for each meal type.")
@@ -485,6 +534,7 @@ with left_panel:
                     "activity_level": ACTIVITY_LEVEL_OPTIONS[activity_level_label],
                     "menu_id": int(menu_id),
                     "plan_duration_days": int(plan_duration_days),
+                    "number_of_days": int(number_of_days),
                     "meals": meals_requested,
                 }
             )
@@ -502,6 +552,7 @@ with left_panel:
             "activity_level": ACTIVITY_LEVEL_OPTIONS[activity_level_label],
             "menu_id": int(menu_id),
             "plan_duration_days": int(plan_duration_days),
+            "number_of_days": int(number_of_days),
             "meals": meals_requested,
         }
 
@@ -523,11 +574,13 @@ with left_panel:
                         st.session_state.recommendation_result = {
                             "error": f"API request failed with HTTP {response.status_code}.",
                             "response": response_data,
+                            "menu_id": int(menu_id),
                         }
                     else:
                         st.session_state.recommendation_result = {
                             "error": None,
                             "response": response_data,
+                            "menu_id": int(menu_id),
                         }
                 except requests.RequestException as exc:
                     st.session_state.recommendation_result = {
