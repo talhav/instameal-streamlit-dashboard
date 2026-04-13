@@ -1,12 +1,14 @@
 import html
 import json
 import os
+from datetime import datetime, timezone
 from textwrap import dedent
 
 import psycopg2
 import requests
 import streamlit as st
 from dotenv import load_dotenv
+from pymongo import MongoClient
 
 
 load_dotenv()
@@ -18,6 +20,9 @@ DEFAULT_DB_USER = os.getenv("DB_USER")
 DEFAULT_DB_PASSWORD = os.getenv("DB_PASSWORD")
 DEFAULT_DB_HOST = os.getenv("DB_HOST")
 DEFAULT_DB_PORT = os.getenv("DB_PORT")
+MONGO_URI = os.getenv("MONGO_URI")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
+MONGO_COLLECTION_NAME = os.getenv("MONGO_COLLECTION_NAME")
 
 GOAL_OPTIONS = {
     "Weight loss": "weight_loss",
@@ -255,13 +260,31 @@ def get_all_menu_products(menu_id):
                 "nutrition": nutrition_data,
                 "meal_types": meal_types
             })
-        
+
         cursor.close()
         connection.close()
         return db_results
     except Exception as e:
         st.error(f"DB Connection Error: {e}")
         return []
+
+
+def save_test_run_to_mongo(request_payload, response_payload, feedback):
+    if not MONGO_URI:
+        raise ValueError("Mongo connection is not configured. Please set MONGO_URI.")
+
+    with MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000) as client:
+        database = client[MONGO_DB_NAME]
+        insert_result = database[MONGO_COLLECTION_NAME].insert_one(
+            {
+                "request_payload": request_payload,
+                "response_payload": response_payload,
+                "feedback": feedback,
+                "created_at": datetime.now(timezone.utc),
+            }
+        )
+
+    return str(insert_result.inserted_id)
 
 
 def parse_nutrition_data(raw_value):
@@ -385,7 +408,7 @@ def render_recommendation_panel(result):
         recommended_map[meal_type_key] = rec.get("products", [])
 
     all_products = get_all_menu_products(menu_id) if menu_id else []
-    
+
     products_by_meal = {}
     for prod in all_products:
         for m in prod.get("meal_types", []):
@@ -395,7 +418,7 @@ def render_recommendation_panel(result):
         meal_type = recommendation.get("meal_type", "unknown")
         meal_key = meal_type.lower()
         st.markdown(f'<div class="meal-section"><h3>{meal_type.title()}</h3></div>', unsafe_allow_html=True)
-        
+
         meal_products = products_by_meal.get(meal_key, [])
         if not meal_products:
             st.warning("No products found in the database for this meal type.")
@@ -416,7 +439,7 @@ def render_recommendation_panel(result):
                     description = html.escape(raw_desc).replace("\n", "<br>")
                     image_url = html.escape(detail.get("image", ""))
                     nutrition = detail.get("nutrition", {})
-                    
+
                     is_rec = detail["id"] in recommended_map.get(meal_key, [])
 
                     st.markdown(
@@ -433,6 +456,10 @@ inject_styles()
 
 if "recommendation_result" not in st.session_state:
     st.session_state.recommendation_result = None
+if "tester_feedback" not in st.session_state:
+    st.session_state.tester_feedback = ""
+if "save_status" not in st.session_state:
+    st.session_state.save_status = None
 
 
 st.title("Instameals Recommendation Engine Tester")
@@ -555,11 +582,13 @@ with left_panel:
             "number_of_days": int(number_of_days),
             "meals": meals_requested,
         }
+        st.session_state.save_status = None
 
         if not meals_requested:
             st.session_state.recommendation_result = {
                 "error": "Add at least one meal with quantity greater than zero.",
                 "response": None,
+                "request_payload": payload,
             }
         else:
             with st.spinner("Calculating recommendations..."):
@@ -575,18 +604,77 @@ with left_panel:
                             "error": f"API request failed with HTTP {response.status_code}.",
                             "response": response_data,
                             "menu_id": int(menu_id),
+                            "request_payload": payload,
                         }
                     else:
                         st.session_state.recommendation_result = {
                             "error": None,
                             "response": response_data,
                             "menu_id": int(menu_id),
+                            "request_payload": payload,
                         }
                 except requests.RequestException as exc:
                     st.session_state.recommendation_result = {
                         "error": f"Could not reach the API: {exc}",
                         "response": None,
+                        "request_payload": payload,
                     }
+
+    generated_result = st.session_state.recommendation_result
+    has_generated_payloads = bool(
+        generated_result and generated_result.get("request_payload") is not None
+    )
+
+    if has_generated_payloads:
+        st.divider()
+        st.subheader("Tester Feedback")
+        st.text_area(
+            "Feedback",
+            key="tester_feedback",
+            placeholder="Share tester feedback about this generated result...",
+            height=120,
+        )
+
+        save_clicked = st.button("Save", use_container_width=True)
+        if save_clicked:
+            request_payload = generated_result.get("request_payload")
+            response_payload = generated_result.get("response")
+            feedback_value = st.session_state.tester_feedback.strip()
+
+            if not feedback_value:
+                st.session_state.save_status = {
+                    "type": "error",
+                    "message": "please add the feedback to save",
+                }
+            elif request_payload is None or response_payload is None:
+                st.session_state.save_status = {
+                    "type": "error",
+                    "message": "Generate recommendations first to create request and response payloads.",
+                }
+            else:
+                try:
+                    with st.spinner("Saving test run..."):
+                        inserted_id = save_test_run_to_mongo(
+                            request_payload=request_payload,
+                            response_payload=response_payload,
+                            feedback=feedback_value,
+                        )
+                    st.session_state.save_status = {
+                        "type": "success",
+                        "message": f"Saved test run to MongoDB (id: {inserted_id}).",
+                    }
+                except Exception as exc:
+                    st.session_state.save_status = {
+                        "type": "error",
+                        "message": f"Could not save test run: {exc}",
+                    }
+
+        save_status = st.session_state.save_status
+        if save_status:
+            if save_status.get("type") == "success":
+                st.success(save_status.get("message", "Saved."))
+            else:
+                st.error(save_status.get("message", "Failed to save."))
 
 with right_panel:
     render_recommendation_panel(st.session_state.recommendation_result)
