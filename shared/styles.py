@@ -198,6 +198,62 @@ def inject_styles():
             font-size: 0.95rem;
             font-weight: 700;
         }
+
+        /* ── Feedback Rating Buttons ── */
+        .feedback-rating-container {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+        .feedback-rating-button {
+            flex: 1;
+            padding: 12px 20px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .feedback-rating-button:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .feedback-rating-selected-like {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.25), rgba(22, 163, 74, 0.15));
+            border-color: #22c55e;
+            color: #86efac;
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.2), inset 0 0 10px rgba(34, 197, 94, 0.1);
+        }
+        .feedback-rating-selected-dislike {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(220, 38, 38, 0.15));
+            border-color: #ef4444;
+            color: #fca5a5;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.2), inset 0 0 10px rgba(239, 68, 68, 0.1);
+        }
+        .feedback-rating-indicator {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.90rem;
+            font-weight: 600;
+            text-align: center;
+            min-width: 120px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .feedback-rating-indicator-like {
+            background: rgba(34, 197, 94, 0.15);
+            border-color: #22c55e;
+            color: #86efac;
+        }
+        .feedback-rating-indicator-dislike {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
         </style>
         """,
         unsafe_allow_html=True,

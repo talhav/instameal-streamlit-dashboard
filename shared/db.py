@@ -60,8 +60,45 @@ def get_all_menu_products(menu_id):
         return []
 
 def save_test_run_to_mongo(collection_name, request_payload, response_payload, feedback):
+    """
+    Save test run data to MongoDB.
+
+    Args:
+        collection_name: MongoDB collection name
+        request_payload: Original API request dict
+        response_payload: API response dict
+        feedback: Can be either:
+                 - string: Legacy format (e.g., "Great recommendations!")
+                 - dict: New format (e.g., {"rating": "like", "comment": "..."})
+
+    Returns:
+        str: MongoDB document ID
+
+    Example:
+        # New format with thumbs rating
+        feedback_dict = {
+            "rating": "like",  # "like" | "dislike" | null
+            "comment": "Excellent options!"  # optional text
+        }
+        save_test_run_to_mongo(collection, request, response, feedback_dict)
+    """
     if not MONGO_URI:
         raise ValueError("Mongo connection is not configured. Please set MONGO_URI.")
+
+    # Validate feedback format if dict
+    if isinstance(feedback, dict):
+        # New structured format
+        if "rating" in feedback:
+            rating = feedback.get("rating")
+            if rating is not None and rating not in ("like", "dislike"):
+                raise ValueError(f"Invalid rating value: {rating}. Must be 'like', 'dislike', or null.")
+        feedback_to_save = feedback
+    else:
+        # Legacy string format - convert to new format for consistency
+        feedback_to_save = {
+            "rating": None,
+            "comment": feedback if isinstance(feedback, str) else str(feedback)
+        }
 
     with MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000) as client:
         database = client[MONGO_DB_NAME]
@@ -69,7 +106,7 @@ def save_test_run_to_mongo(collection_name, request_payload, response_payload, f
             {
                 "request_payload": request_payload,
                 "response_payload": response_payload,
-                "feedback": feedback,
+                "feedback": feedback_to_save,
                 "created_at": datetime.now(timezone.utc),
             }
         )

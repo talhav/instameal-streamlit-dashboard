@@ -282,7 +282,8 @@ def init_state():
     # ── Results ──
     _default("nth_result", None)
     _default("nth_save_status", None)
-    _default("nth_feedback", "")
+    _default("nth_feedback_rating", None)
+    _default("nth_feedback_comment", "")
 
 
 # ── Add / Remove callbacks (must be outside render so buttons work instantly) ─
@@ -868,27 +869,80 @@ with left_panel:
     generated_result = st.session_state.nth_result
     if generated_result and generated_result.get("request_payload") is not None:
         st.subheader("Tester Feedback")
-        st.text_area("Feedback", key="nth_feedback", placeholder="Share tester feedback...", height=120)
 
-        if st.button("Save Nth Test Run", width='stretch'):
+        # Thumbs rating buttons with visual selection state
+        rating_options = ["👍 Like", "👎 Dislike"]
+
+        # Determine current selection index
+        current_index = None
+        if st.session_state.nth_feedback_rating == "like":
+            current_index = 0
+        elif st.session_state.nth_feedback_rating == "dislike":
+            current_index = 1
+
+        rating_value = st.radio(
+            "How was the recommendation?",
+            options=rating_options,
+            index=current_index,
+            horizontal=True,
+            key="nth_rating_selector",
+            label_visibility="collapsed"
+        )
+
+        # Update session state based on selection
+        if rating_value == "👍 Like":
+            st.session_state.nth_feedback_rating = "like"
+        elif rating_value == "👎 Dislike":
+            st.session_state.nth_feedback_rating = "dislike"
+
+        # Optional comment field
+        st.text_area(
+            "Comments (Optional)",
+            key="nth_feedback_comment",
+            placeholder="Share additional feedback...",
+            height=100
+        )
+
+        if st.button("Save Nth Test Run", width='stretch', type="primary"):
             r_payload = generated_result.get("request_payload")
             r_response = generated_result.get("response")
-            f_value = st.session_state.nth_feedback.strip()
+            rating = st.session_state.nth_feedback_rating
+            comment = st.session_state.nth_feedback_comment.strip()
 
-            if not f_value:
-                st.session_state.nth_save_status = {"type": "error", "message": "Please add feedback before saving."}
+            # Validation: require either rating or comment
+            if rating is None and not comment:
+                st.session_state.nth_save_status = {
+                    "type": "error",
+                    "message": "Please select a rating (👍/👎) or add a comment to save."
+                }
             elif r_payload is None or r_response is None:
-                st.session_state.nth_save_status = {"type": "error", "message": "Generate recommendations first."}
+                st.session_state.nth_save_status = {
+                    "type": "error",
+                    "message": "Generate recommendations first."
+                }
             else:
                 try:
                     with st.spinner("Saving to MongoDB..."):
-                        inserted_id = save_test_run_to_mongo(MONGO_NTH_COLLECTION_NAME, r_payload, r_response, f_value)
+                        # Build structured feedback dict
+                        feedback_dict = {
+                            "rating": rating,
+                            "comment": comment
+                        }
+                        inserted_id = save_test_run_to_mongo(
+                            MONGO_NTH_COLLECTION_NAME,
+                            r_payload,
+                            r_response,
+                            feedback_dict
+                        )
                     st.session_state.nth_save_status = {
                         "type": "success",
                         "message": f"Saved Nth test run (id: {inserted_id}).",
                     }
                 except Exception as exc:
-                    st.session_state.nth_save_status = {"type": "error", "message": f"Could not save: {exc}"}
+                    st.session_state.nth_save_status = {
+                        "type": "error",
+                        "message": f"Could not save: {exc}"
+                    }
 
         stat = st.session_state.nth_save_status
         if stat:

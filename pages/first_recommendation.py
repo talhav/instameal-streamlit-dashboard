@@ -116,8 +116,10 @@ inject_styles()
 
 if "recommendation_result" not in st.session_state:
     st.session_state.recommendation_result = None
-if "tester_feedback" not in st.session_state:
-    st.session_state.tester_feedback = ""
+if "tester_feedback_rating" not in st.session_state:
+    st.session_state.tester_feedback_rating = None
+if "tester_feedback_comment" not in st.session_state:
+    st.session_state.tester_feedback_comment = ""
 if "save_status" not in st.session_state:
     st.session_state.save_status = None
 
@@ -238,24 +240,80 @@ with left_panel:
     if bool(generated_result and generated_result.get("request_payload") is not None):
         st.divider()
         st.subheader("Tester Feedback")
-        st.text_area("Feedback", key="tester_feedback", placeholder="Share tester feedback...", height=120)
 
-        if st.button("Save", width='stretch'):
+        # Thumbs rating buttons with visual selection state
+        rating_options = ["👍 Like", "👎 Dislike"]
+
+        # Determine current selection index
+        current_index = None
+        if st.session_state.tester_feedback_rating == "like":
+            current_index = 0
+        elif st.session_state.tester_feedback_rating == "dislike":
+            current_index = 1
+
+        rating_value = st.radio(
+            "How was the recommendation?",
+            options=rating_options,
+            index=current_index,
+            horizontal=True,
+            key="rating_selector",
+            label_visibility="collapsed"
+        )
+
+        # Update session state based on selection
+        if rating_value == "👍 Like":
+            st.session_state.tester_feedback_rating = "like"
+        elif rating_value == "👎 Dislike":
+            st.session_state.tester_feedback_rating = "dislike"
+
+        # Optional comment field
+        st.text_area(
+            "Comments (Optional)",
+            key="tester_feedback_comment",
+            placeholder="Share additional feedback...",
+            height=100
+        )
+
+        if st.button("Save", width='stretch', type="primary"):
             r_payload = generated_result.get("request_payload")
             r_response = generated_result.get("response")
-            f_value = st.session_state.tester_feedback.strip()
+            rating = st.session_state.tester_feedback_rating
+            comment = st.session_state.tester_feedback_comment.strip()
 
-            if not f_value:
-                st.session_state.save_status = {"type": "error", "message": "please add the feedback to save"}
+            # Validation: require either rating or comment
+            if rating is None and not comment:
+                st.session_state.save_status = {
+                    "type": "error",
+                    "message": "Please select a rating (👍/👎) or add a comment to save."
+                }
             elif r_payload is None or r_response is None:
-                st.session_state.save_status = {"type": "error", "message": "Generate recommendations first"}
+                st.session_state.save_status = {
+                    "type": "error",
+                    "message": "Generate recommendations first."
+                }
             else:
                 try:
                     with st.spinner("Saving test run..."):
-                        inserted_id = save_test_run_to_mongo(MONGO_COLLECTION_NAME, r_payload, r_response, f_value)
-                    st.session_state.save_status = {"type": "success", "message": f"Saved test run to MongoDB (id: {inserted_id})."}
+                        # Build structured feedback dict
+                        feedback_dict = {
+                            "rating": rating,
+                            "comment": comment
+                        }
+                        inserted_id = save_test_run_to_mongo(
+                            MONGO_COLLECTION_NAME,
+                            r_payload,
+                            r_response,
+                            feedback_dict
+                        )
+                    st.session_state.save_status = {
+                        "type": "success",
+                        "message": f"Saved test run to MongoDB (id: {inserted_id})."
+                    }
                 except Exception as exc:
-                    st.session_state.save_status = {"type": "error", "message": f"Could not save: {exc}"}
+                    st.session_state.save_status = {
+                        "type": "error",
+                        "message": f"Could not save: {exc}"
+                    }
 
         stat = st.session_state.save_status
         if stat:
