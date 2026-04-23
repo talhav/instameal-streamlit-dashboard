@@ -1,4 +1,5 @@
 import html
+from collections import defaultdict
 import requests
 import streamlit as st
 
@@ -22,6 +23,19 @@ ACTIVITY_LEVEL_OPTIONS = {
     "Physical intense work": "physical_intense_work",
 }
 
+MEAL_TYPE_ALIASES = {
+    "snacks": "snack",
+    "drinks": "drink",
+    "beverages": "drink",
+}
+
+
+def normalize_meal_type(raw_meal_type):
+    meal_type = str(raw_meal_type or "").strip().lower()
+    meal_type = meal_type.strip("{}[]()\"'")
+    meal_type = " ".join(meal_type.split())
+    return MEAL_TYPE_ALIASES.get(meal_type, meal_type)
+
 DEFAULT_REQUEST = {
     "user_goal": "weight_gain",
     "gender": "male",
@@ -30,13 +44,13 @@ DEFAULT_REQUEST = {
     "current_weight_kg": 80.0,
     "target_weight_kg": 90.0,
     "activity_level": "physical_intense_work",
-    "menu_id": 91,
+    "menu_id": 1,
     "plan_duration_days": 28,
     "meals": {
         "breakfast": 1,
         "lunch": 1,
-        "dinner": 3,
-        "snack": 0,
+        "dinner":1,
+        "snack": 1,
         "drink": 1,
     },
 }
@@ -63,48 +77,90 @@ def render_recommendation_panel(result):
     if not recommendations:
         st.warning("The API returned no recommendations.")
 
-    recommended_map = {}
-    for rec in recommendations:
-        meal_type_key = rec.get("meal_type", "unknown").lower()
-        recommended_map[meal_type_key] = rec.get("products", [])
+    # New response contract: recommendations is a flat list of
+    # {"product_id": int, "quantity": int, "meal_type": str}.
+    recommended_counts_by_meal = defaultdict(lambda: defaultdict(int))
+    invalid_recommendation_rows = 0
+    for row in recommendations:
+        meal_type = normalize_meal_type(row.get("meal_type", ""))
+        product_id = row.get("product_id")
+        quantity = row.get("quantity", 0)
 
-    all_products = get_all_menu_products(menu_id) if menu_id else []
-
-    products_by_meal = {}
-    for prod in all_products:
-        for m in prod.get("meal_types", []):
-            products_by_meal.setdefault(m, []).append(prod)
-
-    for recommendation in recommendations:
-        meal_type = recommendation.get("meal_type", "unknown")
-        meal_key = meal_type.lower()
-        st.markdown(f'<div class="meal-section"><h3>{meal_type.title()}</h3></div>', unsafe_allow_html=True)
-
-        meal_products = products_by_meal.get(meal_key, [])
-        if not meal_products:
-            st.warning("No products found in the database for this meal type.")
+        if not meal_type:
+            invalid_recommendation_rows += 1
             continue
 
-        # Sort meal_products so that recommended items appear at the very top
-        recommended_ids = recommended_map.get(meal_key, [])
-        meal_products.sort(key=lambda p: p["id"] in recommended_ids, reverse=True)
+        try:
+            product_id = int(product_id)
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            invalid_recommendation_rows += 1
+            continue
 
-        for start_index in range(0, len(meal_products), 3):
-            row_cards = meal_products[start_index : start_index + 3]
+        if quantity <= 0:
+            continue
+
+        recommended_counts_by_meal[meal_type][product_id] += quantity
+
+    if invalid_recommendation_rows:
+        st.warning(f"Skipped {invalid_recommendation_rows} invalid recommendation rows from API response.")
+
+    all_products = get_all_menu_products(menu_id) if menu_id else []
+    products_by_meal = defaultdict(list)
+    for product in all_products:
+        for meal_type in product.get("meal_types", []):
+            normalized_meal_type = normalize_meal_type(meal_type)
+            if normalized_meal_type:
+                products_by_meal[normalized_meal_type].append(product)
+
+    meal_order = ["breakfast", "lunch", "dinner", "snack", "drink"]
+    response_meal_types = [meal for meal in recommended_counts_by_meal.keys() if meal not in meal_order]
+    meal_types_to_render = meal_order + sorted(response_meal_types)
+
+    for meal_type in meal_types_to_render:
+        meal_products = products_by_meal.get(meal_type, [])
+        recommended_counts = recommended_counts_by_meal.get(meal_type, {})
+
+        st.markdown(f'<div class="meal-section"><h3>{meal_type.title()}</h3></div>', unsafe_allow_html=True)
+
+        if not meal_products:
+            if not recommended_counts:
+                st.info(
+                    "No recommendations were returned for this meal type, and no foods were found in the database for this meal type and menu ID."
+                )
+            else:
+                st.info(
+                    "Recommendations were returned for this meal type, but no foods were found in the database for this meal type and menu ID."
+                )
+            continue
+
+        recommended_cards = []
+        non_recommended_cards = []
+        for product in meal_products:
+            product_id = product.get("id")
+            qty = int(recommended_counts.get(product_id, 0))
+            if qty > 0:
+                recommended_cards.extend([(product, True)] * qty)
+            else:
+                non_recommended_cards.append((product, False))
+
+        meal_cards = recommended_cards + non_recommended_cards
+
+        for start_index in range(0, len(meal_cards), 3):
+            row_cards = meal_cards[start_index : start_index + 3]
             card_columns = st.columns(3, gap="medium")
 
-            for column_index, detail in enumerate(row_cards):
+            for column_index, (product, is_recommended) in enumerate(row_cards):
                 with card_columns[column_index]:
-                    title = html.escape(detail.get("title", "Unknown product"))
-                    raw_desc = detail.get("description", "")
+                    product_id = product.get("id")
+                    title = html.escape(product.get("title", f"Unknown Product #{product_id}"))
+                    raw_desc = product.get("description", "")
                     description = html.escape(raw_desc).replace("\n", "<br>")
-                    image_url = html.escape(detail.get("image", ""))
-                    nutrition = detail.get("nutrition", {})
-
-                    is_rec = detail["id"] in recommended_map.get(meal_key, [])
+                    image_url = html.escape(product.get("image", ""))
+                    nutrition = product.get("nutrition", {})
 
                     st.markdown(
-                        build_card_html(title, description, image_url, nutrition, is_recommended=is_rec),
+                        build_card_html(title, description, image_url, nutrition, is_recommended=is_recommended),
                         unsafe_allow_html=True,
                     )
 
@@ -321,6 +377,9 @@ with left_panel:
                 st.success(stat.get("message"))
             else:
                 st.error(stat.get("message"))
+
+        with st.expander("Request payload", expanded=False):
+            st.json(generated_result.get("request_payload"))
 
 with right_panel:
     render_recommendation_panel(st.session_state.recommendation_result)
