@@ -562,23 +562,19 @@ def render_nth_recommendation_panel(result):
         st.markdown(f'<div class="meal-section"><h3>{category.title()}</h3></div>', unsafe_allow_html=True)
         products_in_category = meal_type_groups[category]
 
-        for start_index in range(0, len(products_in_category), 3):
-            row_items = products_in_category[start_index: start_index + 3]
-            card_columns = st.columns(3, gap="medium")
-            for col_idx, product_item in enumerate(row_items):
-                with card_columns[col_idx]:
-                    prod_id   = product_item.get("product_id")
-                    is_recommended = product_item.get("recommended", False)
-                    reason = product_item.get("reason")
-                    detail    = product_map.get(prod_id, {})
-                    title     = html.escape(detail.get("title", f"Unknown Product #{prod_id}"))
-                    desc      = html.escape(detail.get("description", "")).replace("\n", "<br>")
-                    image_url = html.escape(detail.get("image", ""))
-                    nutrition = detail.get("nutrition", {})
-                    st.markdown(
-                        build_card_html(title, desc, image_url, nutrition, is_recommended=is_recommended, rank_reasoning=reason),
-                        unsafe_allow_html=True,
-                    )
+        for product_item in products_in_category:
+            prod_id   = product_item.get("product_id")
+            is_recommended = product_item.get("recommended", False)
+            reason = product_item.get("reason")
+            detail    = product_map.get(prod_id, {})
+            title     = html.escape(detail.get("title", f"Unknown Product #{prod_id}"))
+            desc      = html.escape(detail.get("description", "")).replace("\n", "<br>")
+            image_url = html.escape(detail.get("image", ""))
+            nutrition = detail.get("nutrition", {})
+            st.markdown(
+                build_card_html(title, desc, image_url, nutrition, is_recommended=is_recommended, rank_reasoning=reason),
+                unsafe_allow_html=True,
+            )
 
     if not rendered_any:
         st.warning("The API returned no products.")

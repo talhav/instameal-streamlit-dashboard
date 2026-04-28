@@ -76,11 +76,13 @@ def build_card_html(title, description, image_url, nutrition, is_recommended=Fal
     return dedent(f'''
         <div class="reco-card">
             {image_html}
-            <div class="reco-card-body">
-                <div class="reco-card-title">{title}</div>
-                <p class="reco-card-description">{description}</p>
+            <div class="reco-card-content">
+                <div class="reco-card-body">
+                    <div class="reco-card-title">{title}</div>
+                    <p class="reco-card-description">{description}</p>
+                </div>
+                {reasoning_html}
+                {nutrition_html}
             </div>
-            {reasoning_html}
-            {nutrition_html}
         </div>
     ''').strip()

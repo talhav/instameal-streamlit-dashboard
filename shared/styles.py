@@ -14,6 +14,9 @@ def inject_styles():
             margin-bottom: 18px;
             transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
             position: relative;
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
         }
         .reco-card:hover {
             border-color: rgba(255, 193, 7, 0.30);
@@ -24,8 +27,9 @@ def inject_styles():
         /* ── Image ── */
         .reco-card-image-wrapper {
             position: relative;
-            width: 100%;
-            height: 180px;
+            width: 240px;
+            flex-shrink: 0;
+            min-height: 180px;
             overflow: hidden;
             background: rgba(0, 0, 0, 0.25);
         }
@@ -38,7 +42,9 @@ def inject_styles():
         }
         .reco-card:hover .reco-card-image-wrapper img { transform: scale(1.07); }
         .reco-card-no-image {
-            height: 180px;
+            width: 240px;
+            flex-shrink: 0;
+            min-height: 180px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -65,8 +71,15 @@ def inject_styles():
         }
 
         /* ── Body ── */
+        .reco-card-content {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
         .reco-card-body {
             padding: 14px 16px 6px 16px;
+            flex: 1;
         }
         .reco-card-title {
             font-size: 1rem;
@@ -103,7 +116,7 @@ def inject_styles():
         .reco-nut-section {
             padding: 10px 16px 14px 16px;
             border-top: 1px solid rgba(255, 193, 7, 0.12);
-            margin-top: 10px;
+            margin-top: auto;
         }
         .reco-nut-heading {
             font-size: 0.62rem;

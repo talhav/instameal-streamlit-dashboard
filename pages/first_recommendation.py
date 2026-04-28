@@ -146,23 +146,18 @@ def render_recommendation_panel(result):
 
         meal_cards = recommended_cards + non_recommended_cards
 
-        for start_index in range(0, len(meal_cards), 3):
-            row_cards = meal_cards[start_index : start_index + 3]
-            card_columns = st.columns(3, gap="medium")
+        for product, is_recommended in meal_cards:
+            product_id = product.get("id")
+            title = html.escape(product.get("title", f"Unknown Product #{product_id}"))
+            raw_desc = product.get("description", "")
+            description = html.escape(raw_desc).replace("\n", "<br>")
+            image_url = html.escape(product.get("image", ""))
+            nutrition = product.get("nutrition", {})
 
-            for column_index, (product, is_recommended) in enumerate(row_cards):
-                with card_columns[column_index]:
-                    product_id = product.get("id")
-                    title = html.escape(product.get("title", f"Unknown Product #{product_id}"))
-                    raw_desc = product.get("description", "")
-                    description = html.escape(raw_desc).replace("\n", "<br>")
-                    image_url = html.escape(product.get("image", ""))
-                    nutrition = product.get("nutrition", {})
-
-                    st.markdown(
-                        build_card_html(title, description, image_url, nutrition, is_recommended=is_recommended),
-                        unsafe_allow_html=True,
-                    )
+            st.markdown(
+                build_card_html(title, description, image_url, nutrition, is_recommended=is_recommended),
+                unsafe_allow_html=True,
+            )
 
     with st.expander("Raw API response", expanded=False):
         st.json(response_data)
