@@ -28,8 +28,8 @@ def inject_styles():
         .reco-card-image-wrapper {
             position: relative;
             width: 240px;
+            height: 240px;
             flex-shrink: 0;
-            min-height: 180px;
             overflow: hidden;
             background: rgba(0, 0, 0, 0.25);
         }
@@ -43,8 +43,8 @@ def inject_styles():
         .reco-card:hover .reco-card-image-wrapper img { transform: scale(1.07); }
         .reco-card-no-image {
             width: 240px;
+            height: 240px;
             flex-shrink: 0;
-            min-height: 180px;
             display: flex;
             align-items: center;
             justify-content: center;

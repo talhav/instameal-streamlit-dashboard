@@ -37,23 +37,119 @@ def normalize_meal_type(raw_meal_type):
     return MEAL_TYPE_ALIASES.get(meal_type, meal_type)
 
 DEFAULT_REQUEST = {
-    "user_goal": "weight_gain",
+    "user_goal": "weight_loss",
     "gender": "male",
-    "age": 30,
+    "age": 25,
     "height_cm": 180.0,
     "current_weight_kg": 80.0,
-    "target_weight_kg": 90.0,
-    "activity_level": "physical_intense_work",
-    "menu_id": 1,
-    "plan_duration_days": 28,
-    "meals": {
-        "breakfast": 1,
-        "lunch": 1,
-        "dinner":1,
-        "snack": 1,
-        "drink": 1,
-    },
+    "target_weight_kg": 75.0,
+    "plan_duration_days": 30,
+    "number_of_days": 5,
+    "activity_level": "regular_walking",
+    "menu_id": 104,
+    "meals": [
+        {"meal_type": "breakfast", "quantity": 1},
+        {"meal_type": "lunch", "quantity": 1},
+        {"meal_type": "dinner", "quantity": 1},
+        {"meal_type": "snack", "quantity": 1},
+        {"meal_type": "drink", "quantity": 1}
+    ]
 }
+
+def get_default_meal_quantity(meal_type):
+    """Get the default quantity for a meal type from DEFAULT_REQUEST."""
+    for meal in DEFAULT_REQUEST.get("meals", []):
+        if meal.get("meal_type") == meal_type:
+            return meal.get("quantity", 0)
+    return 0
+
+
+def assign_products_to_meal_types(all_products, recommended_counts_by_meal):
+    """
+    Assign each product to exactly ONE meal_type.
+
+    Priority order:
+    1. If product is API-recommended, assign to that meal_type
+    2. If product has multiple meal_types and is NOT recommended, intelligently
+       balance between lunch and dinner to achieve equal counts
+    3. If product has single meal_type, assign to that type
+
+    Returns:
+        dict: {meal_type: [products]} where each product appears exactly once
+    """
+    products_by_meal = defaultdict(list)
+    assigned_product_ids = set()
+
+    # Step 1: Assign API-recommended products to their specified meal_type
+    for meal_type, product_counts in recommended_counts_by_meal.items():
+        for product_id in product_counts.keys():
+            # Find the product in all_products
+            product = next((p for p in all_products if p.get("id") == product_id), None)
+            if product:
+                products_by_meal[meal_type].append(product)
+                assigned_product_ids.add(product_id)
+
+    # Step 2: Process remaining non-recommended products
+    non_recommended_products = [p for p in all_products if p.get("id") not in assigned_product_ids]
+
+    # Separate products with multiple meal_types vs. single meal_type vs. no meal_type
+    multi_meal_products = []
+    single_meal_products = defaultdict(list)
+    no_meal_type_products = []
+
+    for product in non_recommended_products:
+        meal_types = [normalize_meal_type(mt) for mt in (product.get("meal_types", []) or [])]
+        meal_types = [mt for mt in meal_types if mt]  # Remove empty strings
+
+        if len(meal_types) > 1:
+            multi_meal_products.append((product, meal_types))
+        elif len(meal_types) == 1:
+            single_meal_products[meal_types[0]].append(product)
+        else:
+            # Product has no meal_type defined
+            no_meal_type_products.append(product)
+
+    # Step 3: Balance multi-meal-type products between lunch and dinner
+    # Goal: achieve roughly equal counts in lunch and dinner sections
+    if multi_meal_products:
+        lunch_count = len(products_by_meal.get("lunch", []))
+        dinner_count = len(products_by_meal.get("dinner", []))
+
+        for idx, (product, meal_types) in enumerate(multi_meal_products):
+            # Check if both lunch and dinner are in the meal_types
+            has_lunch = "lunch" in meal_types
+            has_dinner = "dinner" in meal_types
+
+            if has_lunch and has_dinner:
+                # Assign to the meal_type with fewer products to balance
+                if lunch_count <= dinner_count:
+                    products_by_meal["lunch"].append(product)
+                    lunch_count += 1
+                else:
+                    products_by_meal["dinner"].append(product)
+                    dinner_count += 1
+            elif has_lunch:
+                products_by_meal["lunch"].append(product)
+                lunch_count += 1
+            elif has_dinner:
+                products_by_meal["dinner"].append(product)
+                dinner_count += 1
+            else:
+                # Neither lunch nor dinner, assign to first available meal_type
+                first_meal = meal_types[0] if meal_types else None
+                if first_meal:
+                    products_by_meal[first_meal].append(product)
+
+    # Step 4: Assign single-meal-type products
+    for meal_type, products in single_meal_products.items():
+        products_by_meal[meal_type].extend(products)
+
+    # Step 5: Assign products with no meal_type defined
+    if no_meal_type_products:
+        products_by_meal["not_defined"].extend(no_meal_type_products)
+
+    return products_by_meal
+
 
 def render_recommendation_panel(result):
     st.header("Recommendations")
@@ -106,14 +202,11 @@ def render_recommendation_panel(result):
         st.warning(f"Skipped {invalid_recommendation_rows} invalid recommendation rows from API response.")
 
     all_products = get_all_menu_products(menu_id) if menu_id else []
-    products_by_meal = defaultdict(list)
-    for product in all_products:
-        for meal_type in product.get("meal_types", []):
-            normalized_meal_type = normalize_meal_type(meal_type)
-            if normalized_meal_type:
-                products_by_meal[normalized_meal_type].append(product)
 
-    meal_order = ["breakfast", "lunch", "dinner", "snack", "drink"]
+    # Use new deduplication logic that assigns each product to exactly one meal_type
+    products_by_meal = assign_products_to_meal_types(all_products, recommended_counts_by_meal)
+
+    meal_order = ["breakfast", "lunch", "dinner", "snack", "drink", "not_defined"]
     response_meal_types = [meal for meal in recommended_counts_by_meal.keys() if meal not in meal_order]
     meal_types_to_render = meal_order + sorted(response_meal_types)
 
@@ -121,7 +214,13 @@ def render_recommendation_panel(result):
         meal_products = products_by_meal.get(meal_type, [])
         recommended_counts = recommended_counts_by_meal.get(meal_type, {})
 
-        st.markdown(f'<div class="meal-section"><h3>{meal_type.title()}</h3></div>', unsafe_allow_html=True)
+        # Format the section title
+        if meal_type == "not_defined":
+            section_title = "Meal Type Not Defined In the Database"
+        else:
+            section_title = meal_type.title()
+
+        st.markdown(f'<div class="meal-section"><h3>{section_title}</h3></div>', unsafe_allow_html=True)
 
         if not meal_products:
             if not recommended_counts:
@@ -217,11 +316,11 @@ with left_panel:
 
         with meals_panel:
             st.subheader("Meals")
-            breakfast_qty = st.number_input("Breakfast Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["breakfast"], step=1)
-            lunch_qty = st.number_input("Lunch Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["lunch"], step=1)
-            dinner_qty = st.number_input("Dinner Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["dinner"], step=1)
-            snack_qty = st.number_input("Snack Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["snack"], step=1)
-            drink_qty = st.number_input("Drink Qty", min_value=0, value=DEFAULT_REQUEST["meals"]["drink"], step=1)
+            breakfast_qty = st.number_input("Breakfast Qty", min_value=0, value=get_default_meal_quantity("breakfast"), step=1)
+            lunch_qty = st.number_input("Lunch Qty", min_value=0, value=get_default_meal_quantity("lunch"), step=1)
+            dinner_qty = st.number_input("Dinner Qty", min_value=0, value=get_default_meal_quantity("dinner"), step=1)
+            snack_qty = st.number_input("Snack Qty", min_value=0, value=get_default_meal_quantity("snack"), step=1)
+            drink_qty = st.number_input("Drink Qty", min_value=0, value=get_default_meal_quantity("drink"), step=1)
 
         def build_meals_request():
             meals_requested = []
