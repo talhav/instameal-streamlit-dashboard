@@ -1,4 +1,5 @@
 import html
+from collections import defaultdict
 import requests
 import streamlit as st
 
@@ -6,6 +7,77 @@ from shared.config import NTH_API_URL, MONGO_NTH_COLLECTION_NAME
 from shared.db import get_all_menu_products, save_test_run_to_mongo
 from shared.styles import inject_styles
 from shared.components import build_card_html
+
+
+MEAL_TYPE_ALIASES = {
+    "snacks": "snack",
+    "drinks": "drink",
+    "beverages": "drink",
+}
+
+
+def normalize_meal_type(raw_meal_type):
+    meal_type = str(raw_meal_type or "").strip().lower()
+    meal_type = meal_type.strip("{}[]()\"'")
+    meal_type = " ".join(meal_type.split())
+    return MEAL_TYPE_ALIASES.get(meal_type, meal_type)
+
+
+def assign_products_to_meal_types(all_products, recommended_counts_by_meal):
+    """Assign each product to exactly ONE meal_type, recommended products first."""
+    products_by_meal = defaultdict(list)
+    assigned_product_ids = set()
+
+    for meal_type, product_counts in recommended_counts_by_meal.items():
+        for product_id in product_counts.keys():
+            product = next((p for p in all_products if p.get("id") == product_id), None)
+            if product:
+                products_by_meal[meal_type].append(product)
+                assigned_product_ids.add(product_id)
+
+    non_recommended = [p for p in all_products if p.get("id") not in assigned_product_ids]
+    multi_meal, single_meal, no_meal = [], defaultdict(list), []
+
+    for product in non_recommended:
+        meal_types = [normalize_meal_type(mt) for mt in (product.get("meal_types", []) or [])]
+        meal_types = [mt for mt in meal_types if mt]
+        if len(meal_types) > 1:
+            multi_meal.append((product, meal_types))
+        elif len(meal_types) == 1:
+            single_meal[meal_types[0]].append(product)
+        else:
+            no_meal.append(product)
+
+    if multi_meal:
+        lunch_count = len(products_by_meal.get("lunch", []))
+        dinner_count = len(products_by_meal.get("dinner", []))
+        for product, meal_types in multi_meal:
+            has_lunch = "lunch" in meal_types
+            has_dinner = "dinner" in meal_types
+            if has_lunch and has_dinner:
+                if lunch_count <= dinner_count:
+                    products_by_meal["lunch"].append(product)
+                    lunch_count += 1
+                else:
+                    products_by_meal["dinner"].append(product)
+                    dinner_count += 1
+            elif has_lunch:
+                products_by_meal["lunch"].append(product)
+                lunch_count += 1
+            elif has_dinner:
+                products_by_meal["dinner"].append(product)
+                dinner_count += 1
+            else:
+                first_meal = meal_types[0] if meal_types else None
+                if first_meal:
+                    products_by_meal[first_meal].append(product)
+
+    for meal_type, products in single_meal.items():
+        products_by_meal[meal_type].extend(products)
+    if no_meal:
+        products_by_meal["not_defined"].extend(no_meal)
+
+    return products_by_meal
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,6 +135,14 @@ def init_state():
     _default("nth_plan_start", "2024-03-01")
     _default("nth_plan_end", "2024-06-01")
     _default("nth_current_date", "2024-04-05")
+
+    # ── Delivery Days & Meals ──
+    _default("nth_selected_days", ["Monday"])
+    _default("nth_meal_qty_breakfast", 1)
+    _default("nth_meal_qty_lunch", 1)
+    _default("nth_meal_qty_dinner", 1)
+    _default("nth_meal_qty_snack", 2)
+    _default("nth_meal_qty_drink", 0)
 
     # ── Weekly Weights ──
     _default("nth_ww_count", 5)
@@ -497,8 +577,19 @@ def collect_payload():
             "meals": meals,
         }
 
+    # ── Delivery Days & Meals ──
+    selected_days = ss.get("nth_selected_days") or []
+    number_of_days = len(selected_days)
+    meals = []
+    for meal_type in ["breakfast", "lunch", "dinner", "snack", "drink"]:
+        qty = int(ss.get(f"nth_meal_qty_{meal_type}", 0))
+        if qty > 0:
+            meals.append({"meal_type": meal_type, "quantity": qty})
+
     return {
         "menu_id": int(ss.nth_menu_id),
+        "number_of_days": number_of_days,
+        "meals": meals,
         "stats": {
             "current_weight_kg": float(ss.nth_current_weight),
             "target_weight_kg": float(ss.nth_target_weight),
@@ -535,49 +626,89 @@ def render_nth_recommendation_panel(result):
     response_data = result.get("response", {})
     menu_id = result.get("menu_id")
 
-    all_products = get_all_menu_products(menu_id) if menu_id else []
-    product_map = {p["id"]: p for p in all_products}
-    rendered_any = False
+    # Build recommended_counts_by_meal and reasons from new response format
+    # Products now have: assigned_meal_type (str), quantity (int), reason (str)
+    products_from_api = response_data.get("products", [])
+    recommended_counts_by_meal = defaultdict(lambda: defaultdict(int))
+    recommended_reasons = {}  # (meal_type, product_id) -> reason
 
-    # Parse flat products array and group by meal_types
-    products = response_data.get("products", [])
-    meal_type_groups = {}
-    for product in products:
-        for meal_type in product.get("meal_types", []):
-            if meal_type not in meal_type_groups:
-                meal_type_groups[meal_type] = []
-            meal_type_groups[meal_type].append(product)
+    invalid_rows = 0
+    for item in products_from_api:
+        meal_type = normalize_meal_type(item.get("assigned_meal_type", ""))
+        product_id = item.get("product_id")
+        quantity = item.get("quantity", 1)
+        reason = item.get("reason")
 
-    # Sort products within each meal type: recommended first, then others
-    for meal_type in meal_type_groups:
-        meal_type_groups[meal_type].sort(key=lambda p: (not p.get("recommended", False), p.get("product_id")))
-
-    # Define meal type order for display
-    category_order = ["breakfast", "lunch", "dinner", "snack", "drink"]
-    for category in category_order:
-        if category not in meal_type_groups:
+        if not meal_type:
+            invalid_rows += 1
+            continue
+        try:
+            product_id = int(product_id)
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            invalid_rows += 1
+            continue
+        if quantity <= 0:
             continue
 
-        rendered_any = True
-        st.markdown(f'<div class="meal-section"><h3>{category.title()}</h3></div>', unsafe_allow_html=True)
-        products_in_category = meal_type_groups[category]
+        recommended_counts_by_meal[meal_type][product_id] += quantity
+        if reason:
+            recommended_reasons[(meal_type, product_id)] = reason
 
-        for product_item in products_in_category:
-            prod_id   = product_item.get("product_id")
-            is_recommended = product_item.get("recommended", False)
-            reason = product_item.get("reason")
-            detail    = product_map.get(prod_id, {})
-            title     = html.escape(detail.get("title", f"Unknown Product #{prod_id}"))
-            desc      = html.escape(detail.get("description", "")).replace("\n", "<br>")
-            image_url = html.escape(detail.get("image", ""))
-            nutrition = detail.get("nutrition", {})
+    if invalid_rows:
+        st.warning(f"Skipped {invalid_rows} invalid product rows from API response.")
+
+    if not products_from_api:
+        st.warning("The API returned no products.")
+
+    all_products = get_all_menu_products(menu_id) if menu_id else []
+
+    # Use deduplication logic: assigns each product to exactly one meal section
+    products_by_meal = assign_products_to_meal_types(all_products, recommended_counts_by_meal)
+
+    meal_order = ["breakfast", "lunch", "dinner", "snack", "drink", "not_defined"]
+    extra_meal_types = [m for m in recommended_counts_by_meal.keys() if m not in meal_order]
+    meal_types_to_render = meal_order + sorted(extra_meal_types)
+
+    for meal_type in meal_types_to_render:
+        meal_products = products_by_meal.get(meal_type, [])
+        recommended_counts = recommended_counts_by_meal.get(meal_type, {})
+
+        if meal_type == "not_defined":
+            section_title = "Meal Type Not Defined In the Database"
+        else:
+            section_title = meal_type.title()
+
+        st.markdown(f'<div class="meal-section"><h3>{section_title}</h3></div>', unsafe_allow_html=True)
+
+        if not meal_products:
+            if not recommended_counts:
+                st.info("No recommendations were returned for this meal type, and no foods were found in the database for this meal type and menu ID.")
+            else:
+                st.info("Recommendations were returned for this meal type, but no foods were found in the database for this meal type and menu ID.")
+            continue
+
+        recommended_cards = []
+        non_recommended_cards = []
+        for product in meal_products:
+            product_id = product.get("id")
+            qty = int(recommended_counts.get(product_id, 0))
+            reason = recommended_reasons.get((meal_type, product_id))
+            if qty > 0:
+                recommended_cards.extend([(product, True, reason)] * qty)
+            else:
+                non_recommended_cards.append((product, False, None))
+
+        for product, is_recommended, reason in recommended_cards + non_recommended_cards:
+            product_id = product.get("id")
+            title = html.escape(product.get("title", f"Unknown Product #{product_id}"))
+            description = html.escape(product.get("description", "")).replace("\n", "<br>")
+            image_url = html.escape(product.get("image", ""))
+            nutrition = product.get("nutrition", {})
             st.markdown(
-                build_card_html(title, desc, image_url, nutrition, is_recommended=is_recommended, rank_reasoning=reason),
+                build_card_html(title, description, image_url, nutrition, is_recommended=is_recommended, rank_reasoning=reason),
                 unsafe_allow_html=True,
             )
-
-    if not rendered_any:
-        st.warning("The API returned no products.")
 
     with st.expander("Raw API response", expanded=False):
         st.json(response_data)
@@ -641,6 +772,35 @@ with left_panel:
         st.number_input("Step Count", min_value=0, step=100, key="nth_step_count")
         st.text_input("Current Date (YYYY-MM-DD)", key="nth_current_date")
         st.text_input("Plan End Date (YYYY-MM-DD)", key="nth_plan_end")
+
+    st.divider()
+
+    # ── Delivery Days & Meals ──────────────────────────────────────────────────
+    st.subheader("Delivery Days & Meals")
+    days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    selected_days_val = st.pills(
+        "Select Days",
+        options=days_options,
+        selection_mode="multi",
+        label_visibility="collapsed",
+        key="nth_selected_days",
+    )
+    if not selected_days_val:
+        selected_days_val = []
+    st.caption(f"**{len(selected_days_val)} delivery day(s)** selected — passed as `number_of_days`.")
+
+    st.markdown("**Meal Quantities**")
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+    with mc1:
+        st.number_input("Breakfast", min_value=0, step=1, key="nth_meal_qty_breakfast")
+    with mc2:
+        st.number_input("Lunch", min_value=0, step=1, key="nth_meal_qty_lunch")
+    with mc3:
+        st.number_input("Dinner", min_value=0, step=1, key="nth_meal_qty_dinner")
+    with mc4:
+        st.number_input("Snack", min_value=0, step=1, key="nth_meal_qty_snack")
+    with mc5:
+        st.number_input("Drink", min_value=0, step=1, key="nth_meal_qty_drink")
 
     st.divider()
 
