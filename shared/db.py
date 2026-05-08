@@ -59,6 +59,49 @@ def get_all_menu_products(menu_id):
         st.error(f"DB Connection Error: {e}")
         return []
 
+@st.cache_data(ttl=600)
+def get_all_users():
+    """
+    Fetch all active (non-deleted) users from the database.
+    
+    Returns:
+        list: List of dicts with format: [{"id": 1, "email": "user@example.com", "name": "John Doe"}, ...]
+              Returns empty list if no users found or on error.
+    """
+    try:
+        connection = psycopg2.connect(
+            dbname=DEFAULT_DB_NAME,
+            user=DEFAULT_DB_USER,
+            password=DEFAULT_DB_PASSWORD,
+            host=DEFAULT_DB_HOST,
+            port=DEFAULT_DB_PORT,
+        )
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT id, email, name
+            FROM public.users
+            WHERE deleted_at IS NULL
+            ORDER BY email ASC
+            """
+        )
+
+        users = []
+        for row in cursor.fetchall():
+            users.append({
+                "id": row[0],
+                "email": row[1] or "No email",
+                "name": row[2] or "Unknown"
+            })
+
+        cursor.close()
+        connection.close()
+        return users
+    except Exception as e:
+        st.error(f"DB Connection Error (users): {e}")
+        return []
+
 def save_test_run_to_mongo(collection_name, request_payload, response_payload, feedback):
     """
     Save test run data to MongoDB.

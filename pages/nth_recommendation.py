@@ -4,7 +4,7 @@ import requests
 import streamlit as st
 
 from shared.config import NTH_API_URL, NTH_PAYLOAD_API_URL, MONGO_NTH_COLLECTION_NAME
-from shared.db import get_all_menu_products, save_test_run_to_mongo
+from shared.db import get_all_menu_products, save_test_run_to_mongo, get_all_users
 from shared.styles import inject_styles
 from shared.components import build_card_html
 
@@ -886,12 +886,26 @@ with left_panel:
 
     # Load User Data
     st.subheader("Load User Data")
-    uc, bc = st.columns([2, 1])
-    with uc:
-        st.number_input("User ID", min_value=1, step=1, key="nth_user_id")
-    with bc:
-        st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
-        fetch_clicked = st.button("Fetch User Data", type="secondary", width="stretch")
+    
+    # Fetch users for dropdown
+    users = get_all_users()
+    if not users:
+        st.warning("No users found in the database.")
+        fetch_clicked = False
+    else:
+        # Build display labels for dropdown: "email (ID: id)"
+        user_options = {f"{u['email']} (ID: {u['id']})": u['id'] for u in users}
+        selected_label = st.selectbox(
+            "Select User by Email",
+            options=user_options.keys(),
+            index=0,
+            key="nth_user_selector"
+        )
+        st.session_state.nth_user_id = user_options[selected_label]
+        
+        st.caption(f"Selected User ID: {st.session_state.nth_user_id}")
+        
+        fetch_clicked = st.button("Fetch User Data", type="primary", width="stretch")
 
     if fetch_clicked:
         with st.spinner(f"Fetching payload for user {st.session_state.nth_user_id}..."):
