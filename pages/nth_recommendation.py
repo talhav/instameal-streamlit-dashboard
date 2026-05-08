@@ -3,7 +3,7 @@ from collections import defaultdict
 import requests
 import streamlit as st
 
-from shared.config import NTH_API_URL, MONGO_NTH_COLLECTION_NAME
+from shared.config import NTH_API_URL, NTH_PAYLOAD_API_URL, MONGO_NTH_COLLECTION_NAME
 from shared.db import get_all_menu_products, save_test_run_to_mongo
 from shared.styles import inject_styles
 from shared.components import build_card_html
@@ -80,8 +80,7 @@ def assign_products_to_meal_types(all_products, recommended_counts_by_meal):
     return products_by_meal
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
+# Helpers
 def _default(key, value):
     """Set key in session_state only if it has not been set yet."""
     if key not in st.session_state:
@@ -126,7 +125,7 @@ def _nutrition_payload(calories, carbs, fat, protein):
 
 
 def init_state():
-    # ── Stats ──
+    # Stats
     _default("nth_menu_id", 1)
     _default("nth_current_weight", 76.4)
     _default("nth_target_weight", 70.0)
@@ -136,7 +135,7 @@ def init_state():
     _default("nth_plan_end", "2024-06-01")
     _default("nth_current_date", "2024-04-05")
 
-    # ── Delivery Days & Meals ──
+    # Delivery Days & Meals
     _default("nth_selected_days", ["Monday"])
     _default("nth_meal_qty_breakfast", 1)
     _default("nth_meal_qty_lunch", 1)
@@ -144,7 +143,7 @@ def init_state():
     _default("nth_meal_qty_snack", 2)
     _default("nth_meal_qty_drink", 0)
 
-    # ── Weekly Weights ──
+    # Weekly Weights
     _default("nth_ww_count", 5)
     _default("nth_ww_date_0", "2024-03-01")
     _default("nth_ww_weight_0", 80.0)
@@ -157,7 +156,7 @@ def init_state():
     _default("nth_ww_date_4", "2024-03-29")
     _default("nth_ww_weight_4", 76.4)
 
-    # ── Internal Meals ──
+    # Internal Meals
     internal_meals = [
         {
             "title": "Grilled Lemon Herb Chicken Bowl",
@@ -200,7 +199,7 @@ def init_state():
         _default(f"nth_int_nfat_{idx}", meal["nutrition"]["fat"])
         _default(f"nth_int_nprot_{idx}", meal["nutrition"]["protein"])
 
-    # ── External Meals ──
+    # External Meals
     external_weeks = [
         [
             {
@@ -257,7 +256,7 @@ def init_state():
             _default(f"nth_ext_nfat_{week_idx}_{meal_idx}", meal["nutrition"]["fat"])
             _default(f"nth_ext_nprot_{week_idx}_{meal_idx}", meal["nutrition"]["protein"])
 
-    # ── Previous Recommendations ──
+    # Previous Recommendations
     previous_weeks = [
         {
             "enabled": True,
@@ -359,14 +358,144 @@ def init_state():
             if legacy_calorie in st.session_state:
                 st.session_state[f"nth_prev_meal_cal_{idx}_{meal_idx}"] = st.session_state[legacy_calorie]
 
-    # ── Results ──
+    # Fetch State
+    _default("nth_user_id", 572)
+    _default("nth_fetch_status", None)
+
+    # Results
     _default("nth_result", None)
     _default("nth_save_status", None)
     _default("nth_feedback_rating", None)
     _default("nth_feedback_comment", "")
 
 
-# ── Add / Remove callbacks (must be outside render so buttons work instantly) ─
+# Payload loader
+def _week_number_from_key(k):
+    """Extract leading integer from ordinal week key e.g. '1st_week' -> 1."""
+    num = ""
+    for c in k:
+        if c.isdigit():
+            num += c
+        else:
+            break
+    return int(num) if num else 0
+
+
+def load_payload_into_state(payload):
+    """Write a fetched nth-recommendations payload into st.session_state."""
+    ss = st.session_state
+
+    # Menu
+    ss["nth_menu_id"] = int(payload.get("menu_id", 1))
+
+    # Delivery Days & Meals
+    number_of_days = int(payload.get("number_of_days", 1))
+    weekday_pool = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    ss["nth_selected_days"] = weekday_pool[:number_of_days]
+    for mt in ["breakfast", "lunch", "dinner", "snack", "drink"]:
+        ss[f"nth_meal_qty_{mt}"] = 0
+    for meal in payload.get("meals", []):
+        mt = meal.get("meal_type", "")
+        if mt in ["breakfast", "lunch", "dinner", "snack", "drink"]:
+            ss[f"nth_meal_qty_{mt}"] = int(meal.get("quantity", 0))
+
+    # Stats
+    stats = payload.get("stats", {})
+    ss["nth_current_weight"] = float(stats.get("current_weight_kg", 0.0))
+    ss["nth_target_weight"]  = float(stats.get("target_weight_kg", 0.0))
+    ss["nth_goal"]           = stats.get("goal", "weight_loss")
+    ss["nth_step_count"]     = int(stats.get("step_count", 0))
+    ss["nth_plan_start"]     = stats.get("plan_start_date", "")
+    ss["nth_plan_end"]       = stats.get("plan_end_date", "")
+    ss["nth_current_date"]   = stats.get("current_date", "")
+
+    # Weekly Weights
+    weekly_weights = stats.get("weekly_weights", []) or []
+    for i in range(ss.get("nth_ww_count", 0)):
+        ss.pop(f"nth_ww_date_{i}", None)
+        ss.pop(f"nth_ww_weight_{i}", None)
+    if weekly_weights:
+        ss["nth_ww_count"] = len(weekly_weights)
+        for i, ww in enumerate(weekly_weights):
+            ss[f"nth_ww_date_{i}"]   = ww.get("recorded_date", "")
+            ss[f"nth_ww_weight_{i}"] = float(ww.get("weight_kg", 0.0))
+    else:
+        ss["nth_ww_count"]    = 1
+        ss["nth_ww_date_0"]   = ""
+        ss["nth_ww_weight_0"] = 0.0
+
+    # Internal Meals
+    internal_meals = payload.get("meal_data", {}).get("consumed_meal_internal", []) or []
+    for i in range(ss.get("nth_int_count", 0)):
+        for k in ["title", "cal", "desc", "ncal", "ncarbs", "nfat", "nprot"]:
+            ss.pop(f"nth_int_{k}_{i}", None)
+    if internal_meals:
+        ss["nth_int_count"] = len(internal_meals)
+        for i, meal in enumerate(internal_meals):
+            nutr = meal.get("nutrition_per_serving", {}) or {}
+            ss[f"nth_int_title_{i}"]  = meal.get("title", "")
+            ss[f"nth_int_cal_{i}"]    = float(meal.get("calories_kcal", 0.0))
+            ss[f"nth_int_desc_{i}"]   = meal.get("description", "") or ""
+            ss[f"nth_int_ncal_{i}"]   = float(nutr.get("calories_kcal", 0.0))
+            ss[f"nth_int_ncarbs_{i}"] = float(nutr.get("carbs_g", 0.0))
+            ss[f"nth_int_nfat_{i}"]   = float(nutr.get("fat_g", 0.0))
+            ss[f"nth_int_nprot_{i}"]  = float(nutr.get("protein_g", 0.0))
+    else:
+        ss["nth_int_count"] = 1
+        for k, v in [("title", ""), ("cal", 0.0), ("desc", ""),
+                     ("ncal", 0.0), ("ncarbs", 0.0), ("nfat", 0.0), ("nprot", 0.0)]:
+            ss[f"nth_int_{k}_0"] = v
+
+    # External Meals
+    external_meals = payload.get("meal_data", {}).get("consumed_meal_external", {}) or {}
+    for w in range(ss.get("nth_ext_week_count", 0)):
+        for m in range(ss.get(f"nth_ext_meal_count_{w}", 0)):
+            for field in ["title", "cal", "desc", "ncal", "ncarbs", "nfat", "nprot"]:
+                ss.pop(f"nth_ext_{field}_{w}_{m}", None)
+        ss.pop(f"nth_ext_meal_count_{w}", None)
+    ext_weeks_sorted = sorted(external_meals.keys(), key=_week_number_from_key)
+    ss["nth_ext_week_count"] = len(ext_weeks_sorted)
+    for w, week_key in enumerate(ext_weeks_sorted):
+        meals = external_meals[week_key]
+        ss[f"nth_ext_meal_count_{w}"] = len(meals)
+        for m, meal in enumerate(meals):
+            nutr = meal.get("nutrition_per_serving", {}) or {}
+            ss[f"nth_ext_title_{w}_{m}"]  = meal.get("title", "")
+            ss[f"nth_ext_cal_{w}_{m}"]    = float(meal.get("calories_kcal", 0.0))
+            ss[f"nth_ext_desc_{w}_{m}"]   = meal.get("description", "") or ""
+            ss[f"nth_ext_ncal_{w}_{m}"]   = float(nutr.get("calories_kcal", 0.0))
+            ss[f"nth_ext_ncarbs_{w}_{m}"] = float(nutr.get("carbs_g", 0.0))
+            ss[f"nth_ext_nfat_{w}_{m}"]   = float(nutr.get("fat_g", 0.0))
+            ss[f"nth_ext_nprot_{w}_{m}"]  = float(nutr.get("protein_g", 0.0))
+
+    # Previous Recommendations
+    prev_recs = payload.get("previous_recommendations", {}) or {}
+    for w in range(ss.get("nth_prev_week_count", 0)):
+        for m in range(ss.get(f"nth_prev_meal_count_{w}", 0)):
+            for field in ["title", "cal", "ncal", "ncarbs", "nfat", "nprot"]:
+                ss.pop(f"nth_prev_meal_{field}_{w}_{m}", None)
+        ss.pop(f"nth_prev_enabled_{w}", None)
+        ss.pop(f"nth_prev_cal_{w}", None)
+        ss.pop(f"nth_prev_meal_count_{w}", None)
+    prev_weeks_sorted = sorted(prev_recs.keys(), key=_week_number_from_key)
+    ss["nth_prev_week_count"] = len(prev_weeks_sorted)
+    for w, week_key in enumerate(prev_weeks_sorted):
+        week_data = prev_recs[week_key]
+        meals = week_data.get("meals", [])
+        ss[f"nth_prev_enabled_{w}"]    = True
+        ss[f"nth_prev_cal_{w}"]        = int(week_data.get("calories", 0) or 0)
+        ss[f"nth_prev_meal_count_{w}"] = max(len(meals), 1)
+        for m, meal in enumerate(meals):
+            nutr = meal.get("nutrition_per_serving", {}) or {}
+            ss[f"nth_prev_meal_title_{w}_{m}"]  = meal.get("title", "")
+            ss[f"nth_prev_meal_cal_{w}_{m}"]    = float(meal.get("calories_kcal", 0.0))
+            ss[f"nth_prev_meal_ncal_{w}_{m}"]   = float(nutr.get("calories_kcal", 0.0))
+            ss[f"nth_prev_meal_ncarbs_{w}_{m}"] = float(nutr.get("carbs_g", 0.0))
+            ss[f"nth_prev_meal_nfat_{w}_{m}"]   = float(nutr.get("fat_g", 0.0))
+            ss[f"nth_prev_meal_nprot_{w}_{m}"]  = float(nutr.get("protein_g", 0.0))
+
+
+# Add / Remove callbacks (must be outside render so buttons work instantly)
 
 def add_ww():
     i = st.session_state.nth_ww_count
@@ -496,8 +625,7 @@ def remove_prev_week():
         st.session_state.nth_prev_week_count = n
 
 
-# ── Payload builder ───────────────────────────────────────────────────────────
-
+# Payload builder
 def collect_payload():
     ss = st.session_state
 
@@ -577,7 +705,7 @@ def collect_payload():
             "meals": meals,
         }
 
-    # ── Delivery Days & Meals ──
+    # Delivery Days & Meals
     selected_days = ss.get("nth_selected_days") or []
     number_of_days = len(selected_days)
     meals = []
@@ -608,8 +736,7 @@ def collect_payload():
     }
 
 
-# ── Response panel ────────────────────────────────────────────────────────────
-
+# Response panel
 def render_nth_recommendation_panel(result):
     st.header("Recommendations")
 
@@ -744,204 +871,196 @@ def render_response_payload_panel(result):
             st.json(response_payload)
 
 
-# ── Page setup ────────────────────────────────────────────────────────────────
-
+# Page setup
 inject_styles()
 init_state()
 
 st.title("Nth-Recommendation Tester")
-st.caption("Continuity Testing — simulates week-over-week user states, meals, and goal progress.")
+st.caption("Continuity Testing simulates week-over-week user states, meals, and goal progress.")
 
 left_panel, right_panel = st.columns([1, 1.25], gap="large")
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ------------------------------------------------
 with left_panel:
     st.header("Request Form")
 
-    # ── Stats ──────────────────────────────────────────────────────────────────
-    st.subheader("Stats")
+    # Load User Data
+    st.subheader("Load User Data")
+    uc, bc = st.columns([2, 1])
+    with uc:
+        st.number_input("User ID", min_value=1, step=1, key="nth_user_id")
+    with bc:
+        st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+        fetch_clicked = st.button("Fetch User Data", type="secondary", width="stretch")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.number_input("Menu ID", min_value=1, step=1, key="nth_menu_id")
-        st.number_input("Current Weight (kg)", min_value=0.0, step=0.1, key="nth_current_weight")
-        st.number_input("Target Weight (kg)", min_value=0.0, step=0.1, key="nth_target_weight")
-        st.text_input("Plan Start Date (YYYY-MM-DD)", key="nth_plan_start")
-    with c2:
-        st.selectbox("Goal", ["weight_loss", "weight_gain", "maintenance"], key="nth_goal")
-        st.number_input("Step Count", min_value=0, step=100, key="nth_step_count")
-        st.text_input("Current Date (YYYY-MM-DD)", key="nth_current_date")
-        st.text_input("Plan End Date (YYYY-MM-DD)", key="nth_plan_end")
+    if fetch_clicked:
+        with st.spinner(f"Fetching payload for user {st.session_state.nth_user_id}..."):
+            try:
+                uid = int(st.session_state.nth_user_id)
+                resp = requests.get(NTH_PAYLOAD_API_URL, params={"user_id": uid}, timeout=15)
+                rdata = resp.json()
+                if resp.status_code == 200 and rdata.get("statusCode") == 200:
+                    load_payload_into_state(rdata["data"]["payload"])
+                    st.session_state.nth_fetch_status = {
+                        "type": "success",
+                        "order_id": rdata["data"].get("order_id"),
+                        "delivery_date": rdata["data"].get("order_delivery_date"),
+                    }
+                else:
+                    st.session_state.nth_fetch_status = {
+                        "type": "error",
+                        "message": rdata.get("message", f"HTTP {resp.status_code}"),
+                    }
+            except Exception as exc:
+                st.session_state.nth_fetch_status = {
+                    "type": "error",
+                    "message": str(exc),
+                }
+        st.rerun()
+
+    fetch_stat = st.session_state.nth_fetch_status
+    if fetch_stat:
+        if fetch_stat.get("type") == "success":
+            st.success(f"Loaded Order #{fetch_stat['order_id']} - Delivery: {fetch_stat['delivery_date']}")
+        else:
+            st.error(f"Failed to fetch: {fetch_stat.get('message')}")
 
     st.divider()
 
-    # ── Delivery Days & Meals ──────────────────────────────────────────────────
-    st.subheader("Delivery Days & Meals")
-    days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-    selected_days_val = st.pills(
-        "Select Days",
-        options=days_options,
-        selection_mode="multi",
-        label_visibility="collapsed",
-        key="nth_selected_days",
-    )
-    if not selected_days_val:
-        selected_days_val = []
-    st.caption(f"**{len(selected_days_val)} delivery day(s)** selected — passed as `number_of_days`.")
+    _data_loaded = bool(fetch_stat and fetch_stat.get("type") == "success")
 
-    st.markdown("**Meal Quantities**")
-    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
-    with mc1:
-        st.number_input("Breakfast", min_value=0, step=1, key="nth_meal_qty_breakfast")
-    with mc2:
-        st.number_input("Lunch", min_value=0, step=1, key="nth_meal_qty_lunch")
-    with mc3:
-        st.number_input("Dinner", min_value=0, step=1, key="nth_meal_qty_dinner")
-    with mc4:
-        st.number_input("Snack", min_value=0, step=1, key="nth_meal_qty_snack")
-    with mc5:
-        st.number_input("Drink", min_value=0, step=1, key="nth_meal_qty_drink")
+    if not _data_loaded:
+        st.info("Enter a User ID above and click **Fetch User Data** to load the user's data and enable the form.")
+    else:
+        pass  # form sections below are rendered when _data_loaded is True
 
-    st.divider()
+    if _data_loaded:
+        # Stats
+        st.subheader("Stats")
 
-    # ── Weekly Weights ─────────────────────────────────────────────────────────
-    hc, bc = st.columns([2, 1])
-    with hc:
-        st.subheader("Weekly Weights")
-    with bc:
-        b1, b2 = st.columns(2)
-        with b1:
-            st.button("＋ Add", on_click=add_ww, width='stretch', key="btn_add_ww")
-        with b2:
-            st.button("− Remove", on_click=remove_ww, width='stretch', key="btn_rem_ww",
-                      disabled=(st.session_state.nth_ww_count <= 1))
-    st.caption("Historic weight trajectory for the LLM.")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.number_input("Menu ID", min_value=1, step=1, key="nth_menu_id")
+            st.number_input("Current Weight (kg)", min_value=0.0, step=0.1, key="nth_current_weight")
+            st.number_input("Target Weight (kg)", min_value=0.0, step=0.1, key="nth_target_weight")
+            st.text_input("Plan Start Date (YYYY-MM-DD)", key="nth_plan_start")
+        with c2:
+            st.selectbox("Goal", ["weight_loss", "weight_gain", "maintenance"], key="nth_goal")
+            st.number_input("Step Count", min_value=0, step=100, key="nth_step_count")
+            st.text_input("Current Date (YYYY-MM-DD)", key="nth_current_date")
+            st.text_input("Plan End Date (YYYY-MM-DD)", key="nth_plan_end")
 
-    for i in range(st.session_state.nth_ww_count):
-        with st.container(border=True):
-            st.markdown(f'<div class="entry-card-label">📅 Weight Entry {i + 1}</div>', unsafe_allow_html=True)
-            dc, wc = st.columns(2)
-            with dc:
-                st.text_input("Date (YYYY-MM-DD)", key=f"nth_ww_date_{i}", label_visibility="visible")
-            with wc:
-                st.number_input("Weight (kg)", min_value=0.0, step=0.1, key=f"nth_ww_weight_{i}")
+        st.divider()
 
-    st.divider()
+        # Delivery Days & Meals
+        st.subheader("Delivery Days & Meals")
+        days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        selected_days_val = st.pills(
+            "Select Days",
+            options=days_options,
+            selection_mode="multi",
+            label_visibility="collapsed",
+            key="nth_selected_days",
+        )
+        if not selected_days_val:
+            selected_days_val = []
+        st.caption(f"**{len(selected_days_val)} delivery day(s)** selected passed as `number_of_days`.")
 
-    # ── Meal Data ──────────────────────────────────────────────────────────────
-    st.subheader("Meal Data")
+        st.markdown("**Meal Quantities**")
+        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+        with mc1:
+            st.number_input("Breakfast", min_value=0, step=1, key="nth_meal_qty_breakfast")
+        with mc2:
+            st.number_input("Lunch", min_value=0, step=1, key="nth_meal_qty_lunch")
+        with mc3:
+            st.number_input("Dinner", min_value=0, step=1, key="nth_meal_qty_dinner")
+        with mc4:
+            st.number_input("Snack", min_value=0, step=1, key="nth_meal_qty_snack")
+        with mc5:
+            st.number_input("Drink", min_value=0, step=1, key="nth_meal_qty_drink")
 
-    # Internal meals ─────────────────────────────────────────────────────────
-    hc, bc = st.columns([2, 1])
-    with hc:
-        st.markdown("**Internal Meals** *(ordered via Instameals)*")
-    with bc:
-        b1, b2 = st.columns(2)
-        with b1:
-            st.button("＋ Add", on_click=add_int_meal, width='stretch', key="btn_add_int")
-        with b2:
-            st.button("− Remove", on_click=remove_int_meal, width='stretch', key="btn_rem_int",
-                      disabled=(st.session_state.nth_int_count <= 1))
+        st.divider()
 
-    for i in range(st.session_state.nth_int_count):
-        with st.container(border=True):
-            st.markdown(f'<div class="entry-card-label">🍽 Internal Meal {i + 1}</div>', unsafe_allow_html=True)
-            tc, cc = st.columns([2, 1])
-            with tc:
-                st.text_input("Title", key=f"nth_int_title_{i}", placeholder="e.g. Avocado Toast")
-            with cc:
-                st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_int_cal_{i}")
-            st.text_input("Description", key=f"nth_int_desc_{i}", placeholder="Optional notes...")
+        # Weekly Weights
+        hc, bc = st.columns([2, 1])
+        with hc:
+            st.subheader("Weekly Weights")
+        with bc:
+            b1, b2 = st.columns(2)
+            with b1:
+                st.button("+ Add", on_click=add_ww, width='stretch', key="btn_add_ww")
+            with b2:
+                st.button("- Remove", on_click=remove_ww, width='stretch', key="btn_rem_ww",
+                          disabled=(st.session_state.nth_ww_count <= 1))
+        st.caption("Historic weight trajectory for the LLM.")
 
-            with st.expander("Nutrition per Serving (optional)", expanded=True):
-                n1, n2, n3, n4 = st.columns(4)
-                with n1:
-                    st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_int_ncal_{i}")
-                with n2:
-                    st.number_input("Carbs (g)", min_value=0.0, step=0.1, key=f"nth_int_ncarbs_{i}")
-                with n3:
-                    st.number_input("Fat (g)", min_value=0.0, step=0.1, key=f"nth_int_nfat_{i}")
-                with n4:
-                    st.number_input("Protein (g)", min_value=0.0, step=0.1, key=f"nth_int_nprot_{i}")
+        for i in range(st.session_state.nth_ww_count):
+            with st.container(border=True):
+                st.markdown(f'<div class="entry-card-label">Weight Entry {i + 1}</div>', unsafe_allow_html=True)
+                dc, wc = st.columns(2)
+                with dc:
+                    st.text_input("Date (YYYY-MM-DD)", key=f"nth_ww_date_{i}", label_visibility="visible")
+                with wc:
+                    st.number_input("Weight (kg)", min_value=0.0, step=0.1, key=f"nth_ww_weight_{i}")
 
-    # External meals ─────────────────────────────────────────────────────────
-    st.markdown("&nbsp;", unsafe_allow_html=True)
-    hc, bc = st.columns([2, 1])
-    with hc:
-        st.subheader("External Meals")
-    with bc:
-        b1, b2 = st.columns(2)
-        with b1:
-            st.button("＋ Add", on_click=add_ext_week, width='stretch', key="btn_add_ext_week")
-        with b2:
-            st.button("− Remove", on_click=remove_ext_week, width='stretch', key="btn_rem_ext_week",
-                      disabled=(st.session_state.nth_ext_week_count <= 0))
-    st.caption("Off-platform meals grouped by week to match the backend request schema.")
+        st.divider()
 
-    for week_index in range(st.session_state.nth_ext_week_count):
-        week_label = _week_display_label(week_index + 1)
-        meal_count_key = f"nth_ext_meal_count_{week_index}"
+        # Meal Data
+        st.subheader("Meal Data")
 
-        with st.container(border=True):
-            st.markdown(f'<div class="entry-card-label">🌍 {week_label}</div>', unsafe_allow_html=True)
+        # Internal meals
+        hc, bc = st.columns([2, 1])
+        with hc:
+            st.markdown("**Internal Meals** *(ordered via Instameals)*")
+        with bc:
+            b1, b2 = st.columns(2)
+            with b1:
+                st.button("+ Add", on_click=add_int_meal, width='stretch', key="btn_add_int")
+            with b2:
+                st.button("- Remove", on_click=remove_int_meal, width='stretch', key="btn_rem_int",
+                          disabled=(st.session_state.nth_int_count <= 1))
 
-            mhc, mbc = st.columns([2, 1])
-            with mhc:
-                st.markdown("**Meals that week**")
-            with mbc:
-                mb1, mb2 = st.columns(2)
-                with mb1:
-                    st.button("＋ Add", on_click=add_ext_meal, args=(week_index,), width='stretch', key=f"btn_add_ext_{week_index}")
-                with mb2:
-                    st.button("− Remove", on_click=remove_ext_meal, args=(week_index,), width='stretch', key=f"btn_rem_ext_{week_index}",
-                              disabled=(st.session_state[meal_count_key] <= 1))
+        for i in range(st.session_state.nth_int_count):
+            with st.container(border=True):
+                st.markdown(f'<div class="entry-card-label">Internal Meal {i + 1}</div>', unsafe_allow_html=True)
+                tc, cc = st.columns([2, 1])
+                with tc:
+                    st.text_input("Title", key=f"nth_int_title_{i}", placeholder="e.g. Avocado Toast")
+                with cc:
+                    st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_int_cal_{i}")
+                st.text_input("Description", key=f"nth_int_desc_{i}", placeholder="Optional notes...")
 
-            for meal_index in range(st.session_state[meal_count_key]):
-                with st.container(border=True):
-                    st.markdown(f'<div class="entry-card-label">🍽 External Meal {meal_index + 1}</div>', unsafe_allow_html=True)
-                    tc, cc = st.columns([2, 1])
-                    with tc:
-                        st.text_input("Title", key=f"nth_ext_title_{week_index}_{meal_index}", placeholder="e.g. McDonalds Big Mac")
-                    with cc:
-                        st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_ext_cal_{week_index}_{meal_index}")
-                    st.text_input("Description", key=f"nth_ext_desc_{week_index}_{meal_index}", placeholder="Optional notes...")
+                with st.expander("Nutrition per Serving (optional)", expanded=True):
+                    n1, n2, n3, n4 = st.columns(4)
+                    with n1:
+                        st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_int_ncal_{i}")
+                    with n2:
+                        st.number_input("Carbs (g)", min_value=0.0, step=0.1, key=f"nth_int_ncarbs_{i}")
+                    with n3:
+                        st.number_input("Fat (g)", min_value=0.0, step=0.1, key=f"nth_int_nfat_{i}")
+                    with n4:
+                        st.number_input("Protein (g)", min_value=0.0, step=0.1, key=f"nth_int_nprot_{i}")
 
-                    with st.expander("Nutrition per Serving (optional)", expanded=True):
-                        n1, n2, n3, n4 = st.columns(4)
-                        with n1:
-                            st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_ext_ncal_{week_index}_{meal_index}")
-                        with n2:
-                            st.number_input("Carbs (g)", min_value=0.0, step=0.1, key=f"nth_ext_ncarbs_{week_index}_{meal_index}")
-                        with n3:
-                            st.number_input("Fat (g)", min_value=0.0, step=0.1, key=f"nth_ext_nfat_{week_index}_{meal_index}")
-                        with n4:
-                            st.number_input("Protein (g)", min_value=0.0, step=0.1, key=f"nth_ext_nprot_{week_index}_{meal_index}")
+        # External meals
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+        hc, bc = st.columns([2, 1])
+        with hc:
+            st.subheader("External Meals")
+        with bc:
+            b1, b2 = st.columns(2)
+            with b1:
+                st.button("+ Add", on_click=add_ext_week, width='stretch', key="btn_add_ext_week")
+            with b2:
+                st.button("- Remove", on_click=remove_ext_week, width='stretch', key="btn_rem_ext_week",
+                          disabled=(st.session_state.nth_ext_week_count <= 0))
+        st.caption("Off-platform meals grouped by week to match the backend request schema.")
 
-    st.divider()
+        for week_index in range(st.session_state.nth_ext_week_count):
+            week_label = _week_display_label(week_index + 1)
+            meal_count_key = f"nth_ext_meal_count_{week_index}"
 
-    # ── Previous Recommendations ───────────────────────────────────────────────
-    hc, bc = st.columns([2, 1])
-    with hc:
-        st.subheader("Previous Recommendations")
-    with bc:
-        b1, b2 = st.columns(2)
-        with b1:
-            st.button("＋ Add", on_click=add_prev_week, width='stretch', key="btn_add_prev_week")
-        with b2:
-            st.button("− Remove", on_click=remove_prev_week, width='stretch', key="btn_rem_prev_week",
-                      disabled=(st.session_state.nth_prev_week_count <= 0))
-    st.caption("Include historical week data to give the LLM continuity context.")
-
-    for week_index in range(st.session_state.nth_prev_week_count):
-        week_label = _week_display_label(week_index + 1)
-        enabled_key = f"nth_prev_enabled_{week_index}"
-
-        with st.container(border=True):
-            st.markdown(f'<div class="entry-card-label">📆 {week_label}</div>', unsafe_allow_html=True)
-            st.checkbox(f"Include {week_label}", key=enabled_key)
-
-            if st.session_state[enabled_key]:
-                meal_count_key = f"nth_prev_meal_count_{week_index}"
+            with st.container(border=True):
+                st.markdown(f'<div class="entry-card-label">{week_label}</div>', unsafe_allow_html=True)
 
                 mhc, mbc = st.columns([2, 1])
                 with mhc:
@@ -949,166 +1068,225 @@ with left_panel:
                 with mbc:
                     mb1, mb2 = st.columns(2)
                     with mb1:
-                        st.button("＋ Add", on_click=add_prev_meal, args=(week_index,),
-                                  width='stretch', key=f"btn_add_pm_{week_index}")
+                        st.button("+ Add", on_click=add_ext_meal, args=(week_index,), width='stretch', key=f"btn_add_ext_{week_index}")
                     with mb2:
-                        st.button("− Remove", on_click=remove_prev_meal, args=(week_index,),
-                                  width='stretch', key=f"btn_rem_pm_{week_index}",
+                        st.button("- Remove", on_click=remove_ext_meal, args=(week_index,), width='stretch', key=f"btn_rem_ext_{week_index}",
                                   disabled=(st.session_state[meal_count_key] <= 1))
 
-                for i in range(st.session_state[meal_count_key]):
+                for meal_index in range(st.session_state[meal_count_key]):
                     with st.container(border=True):
-                        st.markdown(f'<div class="entry-card-label">🍽 Meal {i + 1}</div>', unsafe_allow_html=True)
-                        mc1, mc2 = st.columns([2, 1])
-                        with mc1:
-                            st.text_input("Meal Title", key=f"nth_prev_meal_title_{week_index}_{i}",
-                                          placeholder="e.g. Chicken Salad")
-                        with mc2:
-                            st.number_input("Calories (kcal)", min_value=0.0, step=1.0,
-                                            key=f"nth_prev_meal_cal_{week_index}_{i}")
+                        st.markdown(f'<div class="entry-card-label">External Meal {meal_index + 1}</div>', unsafe_allow_html=True)
+                        tc, cc = st.columns([2, 1])
+                        with tc:
+                            st.text_input("Title", key=f"nth_ext_title_{week_index}_{meal_index}", placeholder="e.g. McDonalds Big Mac")
+                        with cc:
+                            st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_ext_cal_{week_index}_{meal_index}")
+                        st.text_input("Description", key=f"nth_ext_desc_{week_index}_{meal_index}", placeholder="Optional notes...")
 
                         with st.expander("Nutrition per Serving (optional)", expanded=True):
                             n1, n2, n3, n4 = st.columns(4)
                             with n1:
-                                st.number_input("Calories (kcal)", min_value=0.0, step=1.0,
-                                                key=f"nth_prev_meal_ncal_{week_index}_{i}")
+                                st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_ext_ncal_{week_index}_{meal_index}")
                             with n2:
-                                st.number_input("Carbs (g)", min_value=0.0, step=0.1,
-                                                key=f"nth_prev_meal_ncarbs_{week_index}_{i}")
+                                st.number_input("Carbs (g)", min_value=0.0, step=0.1, key=f"nth_ext_ncarbs_{week_index}_{meal_index}")
                             with n3:
-                                st.number_input("Fat (g)", min_value=0.0, step=0.1,
-                                                key=f"nth_prev_meal_nfat_{week_index}_{i}")
+                                st.number_input("Fat (g)", min_value=0.0, step=0.1, key=f"nth_ext_nfat_{week_index}_{meal_index}")
                             with n4:
-                                st.number_input("Protein (g)", min_value=0.0, step=0.1,
-                                                key=f"nth_prev_meal_nprot_{week_index}_{i}")
+                                st.number_input("Protein (g)", min_value=0.0, step=0.1, key=f"nth_ext_nprot_{week_index}_{meal_index}")
 
-    st.divider()
+        st.divider()
 
-    # ── Submit ────────────────────────────────────────────────────────────────
-    if st.button("Generate Nth Recommendations", type="primary", width='stretch'):
-        st.session_state.nth_save_status = None
-        payload = collect_payload()
+        # Previous Recommendations
+        hc, bc = st.columns([2, 1])
+        with hc:
+            st.subheader("Previous Recommendations")
+        with bc:
+            b1, b2 = st.columns(2)
+            with b1:
+                st.button("+ Add", on_click=add_prev_week, width='stretch', key="btn_add_prev_week")
+            with b2:
+                st.button("- Remove", on_click=remove_prev_week, width='stretch', key="btn_rem_prev_week",
+                          disabled=(st.session_state.nth_prev_week_count <= 0))
+        st.caption("Include historical week data to give the LLM continuity context.")
 
-        with st.spinner("Calling Nth Endpoint..."):
-            try:
-                response = requests.post(NTH_API_URL, json=payload, timeout=120)
+        for week_index in range(st.session_state.nth_prev_week_count):
+            week_label = _week_display_label(week_index + 1)
+            enabled_key = f"nth_prev_enabled_{week_index}"
+
+            with st.container(border=True):
+                st.markdown(f'<div class="entry-card-label">{week_label}</div>', unsafe_allow_html=True)
+                st.checkbox(f"Include {week_label}", key=enabled_key)
+
+                if st.session_state[enabled_key]:
+                    meal_count_key = f"nth_prev_meal_count_{week_index}"
+
+                    mhc, mbc = st.columns([2, 1])
+                    with mhc:
+                        st.markdown("**Meals that week**")
+                    with mbc:
+                        mb1, mb2 = st.columns(2)
+                        with mb1:
+                            st.button("+ Add", on_click=add_prev_meal, args=(week_index,),
+                                      width='stretch', key=f"btn_add_pm_{week_index}")
+                        with mb2:
+                            st.button("- Remove", on_click=remove_prev_meal, args=(week_index,),
+                                      width='stretch', key=f"btn_rem_pm_{week_index}",
+                                      disabled=(st.session_state[meal_count_key] <= 1))
+
+                    for i in range(st.session_state[meal_count_key]):
+                        with st.container(border=True):
+                            st.markdown(f'<div class="entry-card-label">Meal {i + 1}</div>', unsafe_allow_html=True)
+                            mc1, mc2 = st.columns([2, 1])
+                            with mc1:
+                                st.text_input("Meal Title", key=f"nth_prev_meal_title_{week_index}_{i}",
+                                              placeholder="e.g. Chicken Salad")
+                            with mc2:
+                                st.number_input("Calories (kcal)", min_value=0.0, step=1.0,
+                                                key=f"nth_prev_meal_cal_{week_index}_{i}")
+
+                            with st.expander("Nutrition per Serving (optional)", expanded=True):
+                                n1, n2, n3, n4 = st.columns(4)
+                                with n1:
+                                    st.number_input("Calories (kcal)", min_value=0.0, step=1.0,
+                                                    key=f"nth_prev_meal_ncal_{week_index}_{i}")
+                                with n2:
+                                    st.number_input("Carbs (g)", min_value=0.0, step=0.1,
+                                                    key=f"nth_prev_meal_ncarbs_{week_index}_{i}")
+                                with n3:
+                                    st.number_input("Fat (g)", min_value=0.0, step=0.1,
+                                                    key=f"nth_prev_meal_nfat_{week_index}_{i}")
+                                with n4:
+                                    st.number_input("Protein (g)", min_value=0.0, step=0.1,
+                                                    key=f"nth_prev_meal_nprot_{week_index}_{i}")
+
+        st.divider()
+
+        # Submit
+
+        if st.button("Generate Nth Recommendations", type="primary", width='stretch'):
+            st.session_state.nth_save_status = None
+            payload = collect_payload()
+
+            with st.spinner("Calling Nth Endpoint..."):
                 try:
-                    response_data = response.json()
-                except ValueError:
-                    response_data = {"detail": response.text}
+                    response = requests.post(NTH_API_URL, json=payload, timeout=120)
+                    try:
+                        response_data = response.json()
+                    except ValueError:
+                        response_data = {"detail": response.text}
 
-                if response.status_code != 200:
-                    st.session_state.nth_result = {
-                        "error": f"API request failed with HTTP {response.status_code}.",
-                        "response": response_data,
-                        "menu_id": payload["menu_id"],
-                        "request_payload": payload,
-                    }
-                else:
-                    st.session_state.nth_result = {
-                        "error": None,
-                        "response": response_data,
-                        "menu_id": payload["menu_id"],
-                        "request_payload": payload,
-                    }
-            except requests.RequestException as exc:
-                st.session_state.nth_result = {
-                    "error": f"Could not reach the Nth API: {exc}",
-                    "response": None,
-                    "request_payload": payload,
-                }
-
-    st.divider()
-    render_request_payload_panel(st.session_state.nth_result)
-
-    # ── Feedback & Save ───────────────────────────────────────────────────────
-    generated_result = st.session_state.nth_result
-    if generated_result and generated_result.get("request_payload") is not None:
-        st.subheader("Tester Feedback")
-
-        # Thumbs rating buttons with visual selection state
-        rating_options = ["👍 Like", "👎 Dislike"]
-
-        # Determine current selection index
-        current_index = None
-        if st.session_state.nth_feedback_rating == "like":
-            current_index = 0
-        elif st.session_state.nth_feedback_rating == "dislike":
-            current_index = 1
-
-        rating_value = st.radio(
-            "How was the recommendation?",
-            options=rating_options,
-            index=current_index,
-            horizontal=True,
-            key="nth_rating_selector",
-            label_visibility="collapsed"
-        )
-
-        # Update session state based on selection
-        if rating_value == "👍 Like":
-            st.session_state.nth_feedback_rating = "like"
-        elif rating_value == "👎 Dislike":
-            st.session_state.nth_feedback_rating = "dislike"
-
-        # Optional comment field
-        st.text_area(
-            "Comments (Optional)",
-            key="nth_feedback_comment",
-            placeholder="Share additional feedback...",
-            height=100
-        )
-
-        if st.button("Save Nth Test Run", width='stretch', type="primary"):
-            r_payload = generated_result.get("request_payload")
-            r_response = generated_result.get("response")
-            rating = st.session_state.nth_feedback_rating
-            comment = st.session_state.nth_feedback_comment.strip()
-
-            # Validation: require either rating or comment
-            if rating is None and not comment:
-                st.session_state.nth_save_status = {
-                    "type": "error",
-                    "message": "Please select a rating (👍/👎) or add a comment to save."
-                }
-            elif r_payload is None or r_response is None:
-                st.session_state.nth_save_status = {
-                    "type": "error",
-                    "message": "Generate recommendations first."
-                }
-            else:
-                try:
-                    with st.spinner("Saving to MongoDB..."):
-                        # Build structured feedback dict
-                        feedback_dict = {
-                            "rating": rating,
-                            "comment": comment
+                    if response.status_code != 200:
+                        st.session_state.nth_result = {
+                            "error": f"API request failed with HTTP {response.status_code}.",
+                            "response": response_data,
+                            "menu_id": payload["menu_id"],
+                            "request_payload": payload,
                         }
-                        inserted_id = save_test_run_to_mongo(
-                            MONGO_NTH_COLLECTION_NAME,
-                            r_payload,
-                            r_response,
-                            feedback_dict
-                        )
-                    st.session_state.nth_save_status = {
-                        "type": "success",
-                        "message": f"Saved Nth test run (id: {inserted_id}).",
+                    else:
+                        st.session_state.nth_result = {
+                            "error": None,
+                            "response": response_data,
+                            "menu_id": payload["menu_id"],
+                            "request_payload": payload,
+                        }
+                except requests.RequestException as exc:
+                    st.session_state.nth_result = {
+                        "error": f"Could not reach the Nth API: {exc}",
+                        "response": None,
+                        "request_payload": payload,
                     }
-                except Exception as exc:
+
+        st.divider()
+        render_request_payload_panel(st.session_state.nth_result)
+
+        # Feedback & Save
+        generated_result = st.session_state.nth_result
+        if generated_result and generated_result.get("request_payload") is not None:
+            st.subheader("Tester Feedback")
+
+            # Thumbs rating buttons with visual selection state
+            rating_options = ["Like", "Dislike"]
+
+            # Determine current selection index
+            current_index = None
+            if st.session_state.nth_feedback_rating == "like":
+                current_index = 0
+            elif st.session_state.nth_feedback_rating == "dislike":
+                current_index = 1
+
+            rating_value = st.radio(
+                "How was the recommendation?",
+                options=rating_options,
+                index=current_index,
+                horizontal=True,
+                key="nth_rating_selector",
+                label_visibility="collapsed"
+            )
+
+            # Update session state based on selection
+            if rating_value == "Like":
+                st.session_state.nth_feedback_rating = "like"
+            elif rating_value == "Dislike":
+                st.session_state.nth_feedback_rating = "dislike"
+
+            # Optional comment field
+            st.text_area(
+                "Comments (Optional)",
+                key="nth_feedback_comment",
+                placeholder="Share additional feedback...",
+                height=100
+            )
+
+            if st.button("Save Nth Test Run", width='stretch', type="primary"):
+                r_payload = generated_result.get("request_payload")
+                r_response = generated_result.get("response")
+                rating = st.session_state.nth_feedback_rating
+                comment = st.session_state.nth_feedback_comment.strip()
+
+                # Validation: require either rating or comment
+                if rating is None and not comment:
                     st.session_state.nth_save_status = {
                         "type": "error",
-                        "message": f"Could not save: {exc}"
+                        "message": "Please select a rating (Like/Dislike) or add a comment to save."
                     }
+                elif r_payload is None or r_response is None:
+                    st.session_state.nth_save_status = {
+                        "type": "error",
+                        "message": "Generate recommendations first."
+                    }
+                else:
+                    try:
+                        with st.spinner("Saving to MongoDB..."):
+                            # Build structured feedback dict
+                            feedback_dict = {
+                                "rating": rating,
+                                "comment": comment
+                            }
+                            inserted_id = save_test_run_to_mongo(
+                                MONGO_NTH_COLLECTION_NAME,
+                                r_payload,
+                                r_response,
+                                feedback_dict
+                            )
+                        st.session_state.nth_save_status = {
+                            "type": "success",
+                            "message": f"Saved Nth test run (id: {inserted_id}).",
+                        }
+                    except Exception as exc:
+                        st.session_state.nth_save_status = {
+                            "type": "error",
+                            "message": f"Could not save: {exc}"
+                        }
 
-        stat = st.session_state.nth_save_status
-        if stat:
-            if stat.get("type") == "success":
-                st.success(stat["message"])
-            else:
-                st.error(stat["message"])
+            stat = st.session_state.nth_save_status
+            if stat:
+                if stat.get("type") == "success":
+                    st.success(stat["message"])
+                else:
+                    st.error(stat["message"])
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ------------------------------------------------
 with right_panel:
     render_nth_recommendation_panel(st.session_state.nth_result)
     st.divider()

@@ -19,3 +19,4 @@ MONGO_NTH_COLLECTION_NAME = os.getenv("MONGO_NTH_COLLECTION_NAME", "nth_recommen
 # Endpoints
 API_URL = os.getenv("API_URL", "http://localhost:8000/api/v1/recommendations")
 NTH_API_URL = os.getenv("NTH_API_URL", "http://localhost:8000/api/v1/nth-recommendations")
+NTH_PAYLOAD_API_URL = os.getenv("NTH_PAYLOAD_API_URL")
