@@ -26,7 +26,7 @@ def normalize_meal_type(raw_meal_type):
 def assign_products_to_meal_types(all_products, recommended_counts_by_meal):
     """Assign each product to exactly ONE meal_type, recommended products first."""
     products_by_meal = defaultdict(list)
-    assigned_product_ids = set()
+    assigned_product_ids =   set()
 
     for meal_type, product_counts in recommended_counts_by_meal.items():
         for product_id in product_counts.keys():
@@ -498,9 +498,6 @@ def load_payload_into_state(payload):
 # Add / Remove callbacks (must be outside render so buttons work instantly)
 
 def add_ww():
-    i = st.session_state.nth_ww_count
-    st.session_state[f"nth_ww_date_{i}"] = ""
-    st.session_state[f"nth_ww_weight_{i}"] = 0.0
     st.session_state.nth_ww_count += 1
 
 def remove_ww():
@@ -512,9 +509,6 @@ def remove_ww():
         st.session_state.nth_ww_count = n
 
 def add_int_meal():
-    i = st.session_state.nth_int_count
-    for k, v in [("title",""), ("cal",0.0), ("desc",""), ("ncal",""), ("ncarbs",""), ("nfat",""), ("nprot","")]:
-        st.session_state[f"nth_int_{k}_{i}"] = v
     st.session_state.nth_int_count += 1
 
 def remove_int_meal():
@@ -528,13 +522,6 @@ def remove_int_meal():
 def add_ext_week():
     week_index = st.session_state.nth_ext_week_count
     st.session_state[f"nth_ext_meal_count_{week_index}"] = 1
-    st.session_state[f"nth_ext_title_{week_index}_0"] = ""
-    st.session_state[f"nth_ext_cal_{week_index}_0"] = 0.0
-    st.session_state[f"nth_ext_desc_{week_index}_0"] = ""
-    st.session_state[f"nth_ext_ncal_{week_index}_0"] = 0.0
-    st.session_state[f"nth_ext_ncarbs_{week_index}_0"] = 0.0
-    st.session_state[f"nth_ext_nfat_{week_index}_0"] = 0.0
-    st.session_state[f"nth_ext_nprot_{week_index}_0"] = 0.0
     st.session_state.nth_ext_week_count += 1
 
 
@@ -552,14 +539,6 @@ def remove_ext_week():
 
 def add_ext_meal(week_index):
     ck = f"nth_ext_meal_count_{week_index}"
-    i = st.session_state[ck]
-    st.session_state[f"nth_ext_title_{week_index}_{i}"] = ""
-    st.session_state[f"nth_ext_cal_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_ext_desc_{week_index}_{i}"] = ""
-    st.session_state[f"nth_ext_ncal_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_ext_ncarbs_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_ext_nfat_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_ext_nprot_{week_index}_{i}"] = 0.0
     st.session_state[ck] += 1
 
 
@@ -574,13 +553,6 @@ def remove_ext_meal(week_index):
 
 def add_prev_meal(week_index):
     ck = f"nth_prev_meal_count_{week_index}"
-    i = st.session_state[ck]
-    st.session_state[f"nth_prev_meal_title_{week_index}_{i}"] = ""
-    st.session_state[f"nth_prev_meal_cal_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_prev_meal_ncal_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_prev_meal_ncarbs_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_prev_meal_nfat_{week_index}_{i}"] = 0.0
-    st.session_state[f"nth_prev_meal_nprot_{week_index}_{i}"] = 0.0
     st.session_state[ck] += 1
 
 def remove_prev_meal(week_index):
@@ -602,12 +574,6 @@ def add_prev_week():
     st.session_state[f"nth_prev_enabled_{idx}"] = True
     st.session_state[f"nth_prev_cal_{idx}"] = 1900
     st.session_state[f"nth_prev_meal_count_{idx}"] = 1
-    st.session_state[f"nth_prev_meal_title_{idx}_0"] = ""
-    st.session_state[f"nth_prev_meal_cal_{idx}_0"] = 0.0
-    st.session_state[f"nth_prev_meal_ncal_{idx}_0"] = 0.0
-    st.session_state[f"nth_prev_meal_ncarbs_{idx}_0"] = 0.0
-    st.session_state[f"nth_prev_meal_nfat_{idx}_0"] = 0.0
-    st.session_state[f"nth_prev_meal_nprot_{idx}_0"] = 0.0
     st.session_state.nth_prev_week_count += 1
 
 
@@ -886,7 +852,7 @@ with left_panel:
 
     # Load User Data
     st.subheader("Load User Data")
-    
+
     # Fetch users for dropdown
     users = get_all_users()
     if not users:
@@ -902,9 +868,9 @@ with left_panel:
             key="nth_user_selector"
         )
         st.session_state.nth_user_id = user_options[selected_label]
-        
+
         st.caption(f"Selected User ID: {st.session_state.nth_user_id}")
-        
+
         fetch_clicked = st.button("Fetch User Data", type="primary", width="stretch")
 
     if fetch_clicked:
