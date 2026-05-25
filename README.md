@@ -157,7 +157,7 @@ The collection used depends on the page:
 For the Nth page, the stored request payload reflects the current contract:
 
 - `stats` includes `current_weight_kg`, `target_weight_kg`, `goal`, `step_count`, `weekly_weights`, and date fields
-- `meal_data.consumed_meal_internal` is an array of meals with optional `nutrition_per_serving`
+- `meal_data.consumed_meal_internal` is an array of meals with optional `rating`, `date`, and `nutrition_per_serving`
 - `meal_data.consumed_meal_external` is grouped by ordinal week keys such as `1st_week` and `2nd_week`
 - `previous_recommendations` is grouped by ordinal week keys and stores meal lists for each enabled week
 

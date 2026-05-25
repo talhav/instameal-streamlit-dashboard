@@ -162,30 +162,40 @@ def init_state():
             "title": "Grilled Lemon Herb Chicken Bowl",
             "calories": 480.0,
             "description": "Lunch on Monday, feeling full.",
+            "rating": 4.5,
+            "date": "2024-04-03",
             "nutrition": {"calories": 480.0, "carbs": 45.0, "fat": 12.0, "protein": 42.0},
         },
         {
             "title": "Teriyaki Salmon with Quinoa",
             "calories": 610.0,
             "description": "Dinner on Monday.",
+            "rating": 4.0,
+            "date": "2024-04-03",
             "nutrition": {"calories": 610.0, "carbs": 50.5, "fat": 22.0, "protein": 38.0},
         },
         {
             "title": "Classic Whey Protein Shake",
             "calories": 250.0,
             "description": "Post-workout drink on Tuesday.",
+            "rating": 5.0,
+            "date": "2024-04-04",
             "nutrition": {"calories": 250.0, "carbs": 8.0, "fat": 3.5, "protein": 30.0},
         },
         {
             "title": "Vegan Lentil Stew",
             "calories": 380.0,
             "description": "Lunch on Tuesday.",
+            "rating": 3.5,
+            "date": "2024-04-04",
             "nutrition": {"calories": 380.0, "carbs": 55.0, "fat": 6.0, "protein": 18.0},
         },
         {
             "title": "Spicy Turkey Meatballs",
             "calories": 450.0,
             "description": "Dinner on Wednesday, highly rated.",
+            "rating": 4.8,
+            "date": "2024-04-05",
             "nutrition": {"calories": 450.0, "carbs": 30.0, "fat": 16.0, "protein": 35.0},
         },
     ]
@@ -194,6 +204,8 @@ def init_state():
         _default(f"nth_int_title_{idx}", meal["title"])
         _default(f"nth_int_cal_{idx}", meal["calories"])
         _default(f"nth_int_desc_{idx}", meal["description"])
+        _default(f"nth_int_rating_{idx}", meal.get("rating", 0.0))
+        _default(f"nth_int_date_{idx}", meal.get("date", ""))
         _default(f"nth_int_ncal_{idx}", meal["nutrition"]["calories"])
         _default(f"nth_int_ncarbs_{idx}", meal["nutrition"]["carbs"])
         _default(f"nth_int_nfat_{idx}", meal["nutrition"]["fat"])
@@ -427,7 +439,7 @@ def load_payload_into_state(payload):
     # Internal Meals
     internal_meals = payload.get("meal_data", {}).get("consumed_meal_internal", []) or []
     for i in range(ss.get("nth_int_count", 0)):
-        for k in ["title", "cal", "desc", "ncal", "ncarbs", "nfat", "nprot"]:
+        for k in ["title", "cal", "desc", "rating", "date", "ncal", "ncarbs", "nfat", "nprot"]:
             ss.pop(f"nth_int_{k}_{i}", None)
     if internal_meals:
         ss["nth_int_count"] = len(internal_meals)
@@ -436,13 +448,15 @@ def load_payload_into_state(payload):
             ss[f"nth_int_title_{i}"]  = meal.get("title", "")
             ss[f"nth_int_cal_{i}"]    = float(meal.get("calories_kcal", 0.0))
             ss[f"nth_int_desc_{i}"]   = meal.get("description", "") or ""
+            ss[f"nth_int_rating_{i}"] = float(meal.get("rating", 0.0)) if meal.get("rating") is not None else 0.0
+            ss[f"nth_int_date_{i}"]   = meal.get("date", "")
             ss[f"nth_int_ncal_{i}"]   = float(nutr.get("calories_kcal", 0.0))
             ss[f"nth_int_ncarbs_{i}"] = float(nutr.get("carbs_g", 0.0))
             ss[f"nth_int_nfat_{i}"]   = float(nutr.get("fat_g", 0.0))
             ss[f"nth_int_nprot_{i}"]  = float(nutr.get("protein_g", 0.0))
     else:
         ss["nth_int_count"] = 1
-        for k, v in [("title", ""), ("cal", 0.0), ("desc", ""),
+        for k, v in [("title", ""), ("cal", 0.0), ("desc", ""), ("rating", 0.0), ("date", ""),
                      ("ncal", 0.0), ("ncarbs", 0.0), ("nfat", 0.0), ("nprot", 0.0)]:
             ss[f"nth_int_{k}_0"] = v
 
@@ -515,7 +529,7 @@ def remove_int_meal():
     n = st.session_state.nth_int_count
     if n > 1:
         n -= 1
-        for k in ["title","cal","desc","ncal","ncarbs","nfat","nprot"]:
+        for k in ["title", "cal", "desc", "rating", "date", "ncal", "ncarbs", "nfat", "nprot"]:
             st.session_state.pop(f"nth_int_{k}_{n}", None)
         st.session_state.nth_int_count = n
 
@@ -612,6 +626,13 @@ def collect_payload():
             "calories_kcal": _parse_float(ss.get(f"nth_int_cal_{i}", 0.0)),
             "description": ss.get(f"nth_int_desc_{i}", "") or None,
         }
+        rating_val = ss.get(f"nth_int_rating_{i}")
+        if rating_val not in (None, ""):
+            meal["rating"] = _parse_float(rating_val)
+        date_val = ss.get(f"nth_int_date_{i}", "")
+        if date_val:
+            meal["date"] = date_val
+
         nutrition = _nutrition_payload(
             ss.get(f"nth_int_ncal_{i}", 0.0),
             ss.get(f"nth_int_ncarbs_{i}", 0.0),
@@ -1009,6 +1030,12 @@ with left_panel:
                 with cc:
                     st.number_input("Calories (kcal)", min_value=0.0, step=1.0, key=f"nth_int_cal_{i}")
                 st.text_input("Description", key=f"nth_int_desc_{i}", placeholder="Optional notes...")
+                
+                dc, rc = st.columns(2)
+                with dc:
+                    st.text_input("Date (YYYY-MM-DD)", key=f"nth_int_date_{i}", placeholder="YYYY-MM-DD")
+                with rc:
+                    st.number_input("Rating (0.0 - 5.0)", min_value=0.0, max_value=5.0, step=0.1, key=f"nth_int_rating_{i}")
 
                 with st.expander("Nutrition per Serving (optional)", expanded=True):
                     n1, n2, n3, n4 = st.columns(4)
