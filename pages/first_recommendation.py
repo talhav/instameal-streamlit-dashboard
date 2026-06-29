@@ -11,6 +11,7 @@ from shared.components import build_card_html
 GOAL_OPTIONS = {
     "Weight loss": "weight_loss",
     "Weight gain": "weight_gain",
+    "Maintain weight": "maintain_weight",
 }
 GENDER_OPTIONS = {
     "Male": "male",
