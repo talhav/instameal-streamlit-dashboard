@@ -946,7 +946,7 @@ with left_panel:
             st.number_input("Target Weight (kg)", min_value=0.0, step=0.1, key="nth_target_weight")
             st.text_input("Plan Start Date (YYYY-MM-DD)", key="nth_plan_start")
         with c2:
-            st.selectbox("Goal", ["weight_loss", "weight_gain", "maintenance"], key="nth_goal")
+            st.selectbox("Goal", ["weight_loss", "weight_gain", "maintain_weight", "muscle_gain"], key="nth_goal")
             st.number_input("Step Count", min_value=0, step=100, key="nth_step_count")
             st.text_input("Current Date (YYYY-MM-DD)", key="nth_current_date")
             st.text_input("Plan End Date (YYYY-MM-DD)", key="nth_plan_end")
