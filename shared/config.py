@@ -17,7 +17,6 @@ MONGO_FIRST_REC_FEEDBACK_COLLECTION = os.getenv("MONGO_FIRST_REC_FEEDBACK_COLLEC
 MONGO_NTH_REC_FEEDBACK_COLLECTION = os.getenv("MONGO_NTH_REC_FEEDBACK_COLLECTION", "nth_recommendations")
 
 # Endpoints
-LEGACY_INITIAL_REC_API_URL = os.getenv("LEGACY_INITIAL_REC_API_URL", "http://localhost:8000/api/v1/recommendations")
 NTH_REC_API_URL = os.getenv("NTH_REC_API_URL", "http://localhost:8000/api/v1/nth-recommendations")
 NTH_REC_USER_DATA_FETCH_URL = os.getenv("NTH_REC_USER_DATA_FETCH_URL")
 DIET_PLAN_API_URL = os.getenv("DIET_PLAN_API_URL", "http://127.0.0.1:8001/api/v1/diet-plan")

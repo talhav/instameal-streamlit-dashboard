@@ -81,7 +81,6 @@ copy .env.example .env
 | `DB_NAME`                   | PostgreSQL database name                              |
 | `DB_USER`                   | PostgreSQL username                                   |
 | `DB_PASSWORD`               | PostgreSQL password                                   |
-| `LEGACY_INITIAL_REC_API_URL`                   | First Recommendation endpoint URL                     |
 | `NTH_REC_API_URL`               | Nth Recommendation endpoint URL                       |
 | `MONGO_URI`                 | MongoDB connection string                             |
 | `MONGO_DB_NAME`             | Target MongoDB database name                          |
@@ -182,7 +181,6 @@ docker run --rm -p 8501:8501 --env-file .env instameals-ui
 If the API runs on your local machine, update the URLs in `.env` to use `host.docker.internal`:
 
 ```env
-LEGACY_INITIAL_REC_API_URL=http://host.docker.internal:8001/api/v1/initial-recommendations
 NTH_REC_API_URL=http://host.docker.internal:8001/api/v1/nth-recommendations
 ```
 
