@@ -20,3 +20,5 @@ MONGO_NTH_COLLECTION_NAME = os.getenv("MONGO_NTH_COLLECTION_NAME", "nth_recommen
 API_URL = os.getenv("API_URL", "http://localhost:8000/api/v1/recommendations")
 NTH_API_URL = os.getenv("NTH_API_URL", "http://localhost:8000/api/v1/nth-recommendations")
 NTH_PAYLOAD_API_URL = os.getenv("NTH_PAYLOAD_API_URL")
+DIET_PLAN_API_URL = os.getenv("DIET_PLAN_API_URL", "http://127.0.0.1:8001/api/v1/diet-plan")
+INITIAL_REC_API_URL = os.getenv("INITIAL_REC_API_URL", "http://127.0.0.1:8001/api/v1/initial-recommendations")
