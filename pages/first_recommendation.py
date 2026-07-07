@@ -415,7 +415,8 @@ with left_panel:
                         snack_qty = st.number_input("Snack Qty", min_value=0, value=get_default_meal_quantity("snack"), step=1)
                         drink_qty = st.number_input("Drink Qty", min_value=0, value=get_default_meal_quantity("drink"), step=1)
                     with col4:
-                        menu_id = st.number_input("Menu ID", min_value=1, value=DEFAULT_REQUEST["menu_id"], step=1)
+                        st.subheader("Menu ID")
+                        menu_id = st.number_input("Menu ID", min_value=1, value=DEFAULT_REQUEST["menu_id"], step=1, label_visibility="collapsed")
                         st.subheader("Delivery Days")
                         days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
                         selected_days = st.pills("Select Days", options=days_options, default=["Monday", "Tuesday"], selection_mode="multi", label_visibility="collapsed")
