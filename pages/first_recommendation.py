@@ -12,6 +12,7 @@ GOAL_OPTIONS = {
     "Weight loss": "weight_loss",
     "Weight gain": "weight_gain",
     "Maintain weight": "maintain_weight",
+    "Muscle gain": "muscle_gain",
 }
 GENDER_OPTIONS = {
     "Male": "male",
@@ -168,7 +169,40 @@ def render_recommendation_panel(result):
     response_data = result.get("response", {})
     menu_id = result.get("menu_id")
 
-    st.success(f"Estimated calories per day: {response_data.get('est_calories_per_day', 'Unknown')}")
+    st.success(f"Estimated calories per day: {response_data.get('est_calories_per_day', 'Unknown')} kcal")
+
+    target_macros = response_data.get("target_macros_per_day")
+    est_macros = response_data.get("est_macros_per_day")
+
+    if target_macros:
+        st.subheader("Daily Macro Targets")
+        t1, t2, t3 = st.columns(3)
+        t1.metric("Protein", f"{target_macros.get('protein_g', 0)} g")
+        t2.metric("Carbs", f"{target_macros.get('carbs_g', 0)} g")
+        t3.metric("Fat", f"{target_macros.get('fat_g', 0)} g")
+
+        if est_macros:
+            st.caption("Estimated from selected products")
+            e1, e2, e3 = st.columns(3)
+            e1.metric(
+                "Protein",
+                f"{est_macros.get('protein_g', 0)} g",
+                delta=f"{est_macros.get('protein_g', 0) - target_macros.get('protein_g', 0):+d} g vs target",
+                delta_color="off",
+            )
+            e2.metric(
+                "Carbs",
+                f"{est_macros.get('carbs_g', 0)} g",
+                delta=f"{est_macros.get('carbs_g', 0) - target_macros.get('carbs_g', 0):+d} g vs target",
+                delta_color="off",
+            )
+            e3.metric(
+                "Fat",
+                f"{est_macros.get('fat_g', 0)} g",
+                delta=f"{est_macros.get('fat_g', 0) - target_macros.get('fat_g', 0):+d} g vs target",
+                delta_color="off",
+            )
+            st.caption("⚠️ Est. macros may be an underestimate — products with no DB macro data contribute zero.")
 
     recommendations = response_data.get("recommendations", [])
     if not recommendations:
@@ -304,6 +338,7 @@ with left_panel:
             height_cm = st.number_input("Height (cm)", min_value=0.0, value=DEFAULT_REQUEST["height_cm"], step=0.1)
             current_weight_kg = st.number_input("Current Weight (kg)", min_value=0.0, value=DEFAULT_REQUEST["current_weight_kg"], step=0.1)
             target_weight_kg = st.number_input("Target Weight (kg)", min_value=0.0, value=DEFAULT_REQUEST["target_weight_kg"], step=0.1)
+            st.caption("Not used for **muscle_gain**. Must equal current weight for **maintain_weight**.")
             menu_id = st.number_input("Menu ID", min_value=1, value=DEFAULT_REQUEST["menu_id"], step=1)
             plan_duration_days = st.number_input("Plan Duration (days)", min_value=1, value=DEFAULT_REQUEST["plan_duration_days"], step=1)
 
@@ -336,19 +371,26 @@ with left_panel:
         submitted = st.form_submit_button("Generate Recommendations", type="primary")
 
     if submitted:
+        goal_value = GOAL_OPTIONS[user_goal_label]
         payload = {
-            "user_goal": GOAL_OPTIONS[user_goal_label],
+            "user_goal": goal_value,
             "gender": GENDER_OPTIONS[gender_label],
             "age": int(age),
             "height_cm": float(height_cm),
             "current_weight_kg": float(current_weight_kg),
-            "target_weight_kg": float(target_weight_kg),
             "activity_level": ACTIVITY_LEVEL_OPTIONS[activity_level_label],
             "menu_id": int(menu_id),
             "plan_duration_days": int(plan_duration_days),
             "number_of_days": int(number_of_days),
             "meals": meals_requested,
         }
+        # muscle_gain: target_weight_kg is not used in the calorie formula. Omit it
+        # maintain_weight: must equal current_weight_kg - enforce that here
+        # weight_loss / weight_gain: required, use the form value
+        if goal_value == "maintain_weight":
+            payload["target_weight_kg"] = float(current_weight_kg)
+        elif goal_value != "muscle_gain":
+            payload["target_weight_kg"] = float(target_weight_kg)
         st.session_state.save_status = None
 
         if not meals_requested:
