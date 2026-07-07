@@ -81,12 +81,12 @@ copy .env.example .env
 | `DB_NAME`                   | PostgreSQL database name                              |
 | `DB_USER`                   | PostgreSQL username                                   |
 | `DB_PASSWORD`               | PostgreSQL password                                   |
-| `API_URL`                   | First Recommendation endpoint URL                     |
-| `NTH_API_URL`               | Nth Recommendation endpoint URL                       |
+| `LEGACY_INITIAL_REC_API_URL`                   | First Recommendation endpoint URL                     |
+| `NTH_REC_API_URL`               | Nth Recommendation endpoint URL                       |
 | `MONGO_URI`                 | MongoDB connection string                             |
 | `MONGO_DB_NAME`             | Target MongoDB database name                          |
-| `MONGO_COLLECTION_NAME`     | MongoDB collection for First Recommendation test runs |
-| `MONGO_NTH_COLLECTION_NAME` | MongoDB collection for Nth Recommendation test runs   |
+| `MONGO_FIRST_REC_FEEDBACK_COLLECTION`     | MongoDB collection for First Recommendation test runs |
+| `MONGO_NTH_REC_FEEDBACK_COLLECTION` | MongoDB collection for Nth Recommendation test runs   |
 
 > **Note**: The two endpoints write to entirely separate MongoDB collections so first-recommendation and nth-recommendation test telemetry never mix.
 
@@ -112,7 +112,7 @@ Open [http://localhost:8501](http://localhost:8501)
 3. Click **Generate Recommendations**.
 4. Review the rendered product cards in the right panel.
 5. Enter feedback in the **Tester Feedback** field.
-6. Click **Save** — the run is saved to `MONGO_COLLECTION_NAME`.
+6. Click **Save** — the run is saved to `MONGO_FIRST_REC_FEEDBACK_COLLECTION`.
 
 ### Nth Recommendation
 
@@ -124,7 +124,7 @@ Open [http://localhost:8501](http://localhost:8501)
 6. Click **Generate Nth Recommendations**.
 7. Review product cards grouped by meal type — cards show the recommendation flag, meal-type membership, and the backend reason text.
 8. Inspect the request payload in the left-panel JSON expander and the response payload in the right-panel JSON expander.
-9. Enter feedback and click **Save Nth Test Run** — saved to `MONGO_NTH_COLLECTION_NAME`.
+9. Enter feedback and click **Save Nth Test Run** — saved to `MONGO_NTH_REC_FEEDBACK_COLLECTION`.
 
 ### Current Nth UI Behavior
 
@@ -151,8 +151,8 @@ Both pages save an identical document structure:
 
 The collection used depends on the page:
 
-- **First Recommendation** → `MONGO_COLLECTION_NAME`
-- **Nth Recommendation** → `MONGO_NTH_COLLECTION_NAME`
+- **First Recommendation** → `MONGO_FIRST_REC_FEEDBACK_COLLECTION`
+- **Nth Recommendation** → `MONGO_NTH_REC_FEEDBACK_COLLECTION`
 
 For the Nth page, the stored request payload reflects the current contract:
 
@@ -182,8 +182,8 @@ docker run --rm -p 8501:8501 --env-file .env instameals-ui
 If the API runs on your local machine, update the URLs in `.env` to use `host.docker.internal`:
 
 ```env
-API_URL=http://host.docker.internal:8001/api/v1/initial-recommendations
-NTH_API_URL=http://host.docker.internal:8001/api/v1/nth-recommendations
+LEGACY_INITIAL_REC_API_URL=http://host.docker.internal:8001/api/v1/initial-recommendations
+NTH_REC_API_URL=http://host.docker.internal:8001/api/v1/nth-recommendations
 ```
 
 ---

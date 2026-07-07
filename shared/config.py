@@ -13,12 +13,12 @@ DEFAULT_DB_PORT = os.getenv("DB_PORT", "5432")
 # Mongo Configs
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "instameals")
-MONGO_COLLECTION_NAME = os.getenv("MONGO_COLLECTION_NAME", "first_recommendations")
-MONGO_NTH_COLLECTION_NAME = os.getenv("MONGO_NTH_COLLECTION_NAME", "nth_recommendations")
+MONGO_FIRST_REC_FEEDBACK_COLLECTION = os.getenv("MONGO_FIRST_REC_FEEDBACK_COLLECTION", "first_recommendations")
+MONGO_NTH_REC_FEEDBACK_COLLECTION = os.getenv("MONGO_NTH_REC_FEEDBACK_COLLECTION", "nth_recommendations")
 
 # Endpoints
-API_URL = os.getenv("API_URL", "http://localhost:8000/api/v1/recommendations")
-NTH_API_URL = os.getenv("NTH_API_URL", "http://localhost:8000/api/v1/nth-recommendations")
-NTH_PAYLOAD_API_URL = os.getenv("NTH_PAYLOAD_API_URL")
+LEGACY_INITIAL_REC_API_URL = os.getenv("LEGACY_INITIAL_REC_API_URL", "http://localhost:8000/api/v1/recommendations")
+NTH_REC_API_URL = os.getenv("NTH_REC_API_URL", "http://localhost:8000/api/v1/nth-recommendations")
+NTH_REC_USER_DATA_FETCH_URL = os.getenv("NTH_REC_USER_DATA_FETCH_URL")
 DIET_PLAN_API_URL = os.getenv("DIET_PLAN_API_URL", "http://127.0.0.1:8001/api/v1/diet-plan")
 INITIAL_REC_API_URL = os.getenv("INITIAL_REC_API_URL", "http://127.0.0.1:8001/api/v1/initial-recommendations")

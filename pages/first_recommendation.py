@@ -3,7 +3,7 @@ from collections import defaultdict
 import requests
 import streamlit as st
 
-from shared.config import DIET_PLAN_API_URL, INITIAL_REC_API_URL, MONGO_COLLECTION_NAME
+from shared.config import DIET_PLAN_API_URL, INITIAL_REC_API_URL, MONGO_FIRST_REC_FEEDBACK_COLLECTION
 from shared.db import get_all_menu_products, save_test_run_to_mongo
 from shared.styles import inject_styles
 from shared.components import build_card_html
@@ -534,7 +534,7 @@ with left_panel:
                             "comment": comment
                         }
                         inserted_id = save_test_run_to_mongo(
-                            MONGO_COLLECTION_NAME,
+                            MONGO_FIRST_REC_FEEDBACK_COLLECTION,
                             r_payload,
                             r_response,
                             feedback_dict
