@@ -408,6 +408,13 @@ with left_panel:
                 with st.container():
                     col3, col4 = st.columns(2)
                     with col3:
+                        st.subheader("Meals")
+                        breakfast_qty = st.number_input("Breakfast Qty", min_value=0, value=get_default_meal_quantity("breakfast"), step=1)
+                        lunch_qty = st.number_input("Lunch Qty", min_value=0, value=get_default_meal_quantity("lunch"), step=1)
+                        dinner_qty = st.number_input("Dinner Qty", min_value=0, value=get_default_meal_quantity("dinner"), step=1)
+                        snack_qty = st.number_input("Snack Qty", min_value=0, value=get_default_meal_quantity("snack"), step=1)
+                        drink_qty = st.number_input("Drink Qty", min_value=0, value=get_default_meal_quantity("drink"), step=1)
+                    with col4:
                         menu_id = st.number_input("Menu ID", min_value=1, value=DEFAULT_REQUEST["menu_id"], step=1)
                         st.subheader("Delivery Days")
                         days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
@@ -415,13 +422,6 @@ with left_panel:
                         if selected_days is None:
                             selected_days = []
                         number_of_days = len(selected_days)
-                    with col4:
-                        st.subheader("Meals")
-                        breakfast_qty = st.number_input("Breakfast Qty", min_value=0, value=get_default_meal_quantity("breakfast"), step=1)
-                        lunch_qty = st.number_input("Lunch Qty", min_value=0, value=get_default_meal_quantity("lunch"), step=1)
-                        dinner_qty = st.number_input("Dinner Qty", min_value=0, value=get_default_meal_quantity("dinner"), step=1)
-                        snack_qty = st.number_input("Snack Qty", min_value=0, value=get_default_meal_quantity("snack"), step=1)
-                        drink_qty = st.number_input("Drink Qty", min_value=0, value=get_default_meal_quantity("drink"), step=1)
 
                 if st.button("Generate Initial Recommendations", type="primary", use_container_width=True):
                     meals_requested = []
