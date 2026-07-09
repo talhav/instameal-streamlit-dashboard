@@ -3,7 +3,7 @@ from collections import defaultdict
 import requests
 import streamlit as st
 
-from shared.config import API_URL, MONGO_COLLECTION_NAME
+from shared.config import DIET_PLAN_API_URL, INITIAL_REC_API_URL, MONGO_FIRST_REC_FEEDBACK_COLLECTION
 from shared.db import get_all_menu_products, save_test_run_to_mongo
 from shared.styles import inject_styles
 from shared.components import build_card_html
@@ -19,10 +19,11 @@ GENDER_OPTIONS = {
     "Female": "female",
 }
 ACTIVITY_LEVEL_OPTIONS = {
-    "Mostly sitting": "mostly_sitting",
-    "Often standing": "often_standing",
-    "Regular walking": "regular_walking",
-    "Physical intense work": "physical_intense_work",
+    "Sedentary": "sedentary",
+    "Light": "light",
+    "Moderate": "moderate",
+    "Heavy": "heavy",
+    "Athlete": "athlete",
 }
 
 MEAL_TYPE_ALIASES = {
@@ -47,7 +48,7 @@ DEFAULT_REQUEST = {
     "target_weight_kg": 75.0,
     "plan_duration_days": 30,
     "number_of_days": 5,
-    "activity_level": "regular_walking",
+    "activity_level": "moderate",
     "menu_id": 104,
     "meals": [
         {"meal_type": "breakfast", "quantity": 1},
@@ -299,6 +300,8 @@ def render_recommendation_panel(result):
 
 inject_styles()
 
+if "diet_plans_result" not in st.session_state:
+    st.session_state.diet_plans_result = None
 if "recommendation_result" not in st.session_state:
     st.session_state.recommendation_result = None
 if "tester_feedback_rating" not in st.session_state:
@@ -314,130 +317,205 @@ st.caption("Test the initial user recommendation endpoints.")
 left_panel, right_panel = st.columns([1, 1.25], gap="large")
 
 with left_panel:
-    st.header("Request Form")
+    st.header("Step 1: Diet Plan")
 
-    with st.form("recommendation_form", clear_on_submit=False):
-        profile_panel, meals_panel = st.columns(2, gap="large")
+    with st.container():
+        st.subheader("Profile")
+        user_goal_label = st.selectbox(
+            "User Goal", list(GOAL_OPTIONS.keys()),
+            index=list(GOAL_OPTIONS.values()).index(DEFAULT_REQUEST["user_goal"]),
+        )
+        selected_goal = GOAL_OPTIONS[user_goal_label]
 
-        with profile_panel:
-            st.subheader("Profile")
-            user_goal_label = st.selectbox(
-                "User Goal", list(GOAL_OPTIONS.keys()),
-                index=list(GOAL_OPTIONS.values()).index(DEFAULT_REQUEST["user_goal"]),
-            )
+        col1, col2 = st.columns(2)
+        with col1:
             gender_label = st.selectbox(
                 "Gender", list(GENDER_OPTIONS.keys()),
                 index=list(GENDER_OPTIONS.values()).index(DEFAULT_REQUEST["gender"]),
             )
+            age = st.number_input("Age", min_value=16, max_value=120, value=DEFAULT_REQUEST["age"], step=1)
+            height_cm = st.number_input("Height (cm)", min_value=50.0, max_value=272.0, value=DEFAULT_REQUEST["height_cm"], step=0.1)
+
+        with col2:
             activity_level_label = st.selectbox(
                 "Activity Level", list(ACTIVITY_LEVEL_OPTIONS.keys()),
                 index=list(ACTIVITY_LEVEL_OPTIONS.values()).index(DEFAULT_REQUEST["activity_level"]),
             )
+            current_weight_kg = st.number_input("Current Weight (kg)", min_value=20.0, value=DEFAULT_REQUEST["current_weight_kg"], step=0.1)
+            
+            target_weight_kg = None
+            if selected_goal in ["weight_loss", "weight_gain", "muscle_gain"]:
+                # For maintenance, target_weight is omitted. For others, it's needed/optional.
+                target_weight_kg = st.number_input("Target Weight (kg)", min_value=20.0, value=DEFAULT_REQUEST["target_weight_kg"], step=0.1)
 
-            age = st.number_input("Age", min_value=1, max_value=120, value=DEFAULT_REQUEST["age"], step=1)
-            height_cm = st.number_input("Height (cm)", min_value=0.0, value=DEFAULT_REQUEST["height_cm"], step=0.1)
-            current_weight_kg = st.number_input("Current Weight (kg)", min_value=0.0, value=DEFAULT_REQUEST["current_weight_kg"], step=0.1)
-            target_weight_kg = st.number_input("Target Weight (kg)", min_value=0.0, value=DEFAULT_REQUEST["target_weight_kg"], step=0.1)
-            st.caption("Not used for **muscle_gain**. Must equal current weight for **maintain_weight**.")
-            menu_id = st.number_input("Menu ID", min_value=1, value=DEFAULT_REQUEST["menu_id"], step=1)
-            plan_duration_days = st.number_input("Plan Duration (days)", min_value=1, value=DEFAULT_REQUEST["plan_duration_days"], step=1)
+        training_experience = None
+        if selected_goal == "muscle_gain":
+            training_experience = st.selectbox(
+                "Training Experience", ["beginner", "intermediate", "advanced"], index=1
+            )
 
-            st.divider()
-            st.subheader("Delivery Days")
-            days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-            selected_days = st.pills("Select Days", options=days_options, default=["Monday", "Tuesday"], selection_mode="multi", label_visibility="collapsed")
-            if selected_days is None:
-                selected_days = []
-            number_of_days = len(selected_days)
-
-        with meals_panel:
-            st.subheader("Meals")
-            breakfast_qty = st.number_input("Breakfast Qty", min_value=0, value=get_default_meal_quantity("breakfast"), step=1)
-            lunch_qty = st.number_input("Lunch Qty", min_value=0, value=get_default_meal_quantity("lunch"), step=1)
-            dinner_qty = st.number_input("Dinner Qty", min_value=0, value=get_default_meal_quantity("dinner"), step=1)
-            snack_qty = st.number_input("Snack Qty", min_value=0, value=get_default_meal_quantity("snack"), step=1)
-            drink_qty = st.number_input("Drink Qty", min_value=0, value=get_default_meal_quantity("drink"), step=1)
-
-        def build_meals_request():
-            meals_requested = []
-            quantities = {"breakfast": breakfast_qty, "lunch": lunch_qty, "dinner": dinner_qty, "snack": snack_qty, "drink": drink_qty}
-            for meal_type, quantity in quantities.items():
-                if quantity > 0:
-                    meals_requested.append({"meal_type": meal_type, "quantity": int(quantity)})
-            return meals_requested
-
-        meals_requested = build_meals_request()
-
-        submitted = st.form_submit_button("Generate Recommendations", type="primary")
-
-    if submitted:
-        goal_value = GOAL_OPTIONS[user_goal_label]
-        payload = {
-            "user_goal": goal_value,
-            "gender": GENDER_OPTIONS[gender_label],
-            "age": int(age),
-            "height_cm": float(height_cm),
-            "current_weight_kg": float(current_weight_kg),
-            "activity_level": ACTIVITY_LEVEL_OPTIONS[activity_level_label],
-            "menu_id": int(menu_id),
-            "plan_duration_days": int(plan_duration_days),
-            "number_of_days": int(number_of_days),
-            "meals": meals_requested,
-        }
-        # muscle_gain: target_weight_kg is not used in the calorie formula. Omit it
-        # maintain_weight: must equal current_weight_kg - enforce that here
-        # weight_loss / weight_gain: required, use the form value
-        if goal_value == "maintain_weight":
-            payload["target_weight_kg"] = float(current_weight_kg)
-        elif goal_value != "muscle_gain":
-            payload["target_weight_kg"] = float(target_weight_kg)
-        st.session_state.save_status = None
-
-        if not meals_requested:
-            st.session_state.recommendation_result = {
-                "error": "Add at least one meal with quantity greater than zero.",
-                "response": None,
-                "request_payload": payload,
+        if st.button("Generate Diet Plans", type="primary", use_container_width=True):
+            payload = {
+                "goal": selected_goal,
+                "gender": GENDER_OPTIONS[gender_label],
+                "age": int(age),
+                "height_cm": float(height_cm),
+                "current_weight_kg": float(current_weight_kg),
+                "activity_level": ACTIVITY_LEVEL_OPTIONS[activity_level_label],
             }
-        else:
-            with st.spinner("Calculating recommendations..."):
+            if target_weight_kg is not None:
+                payload["target_weight_kg"] = float(target_weight_kg)
+            if training_experience is not None:
+                payload["training_experience"] = training_experience
+
+            st.session_state.diet_plans_result = None
+            st.session_state.recommendation_result = None
+
+            with st.spinner("Calculating Diet Plans..."):
                 try:
-                    response = requests.post(API_URL, json=payload, timeout=60)
+                    response = requests.post(DIET_PLAN_API_URL, json=payload, timeout=60)
                     try:
                         response_data = response.json()
                     except ValueError:
                         response_data = {"detail": response.text}
 
                     if response.status_code != 200:
-                        st.session_state.recommendation_result = {
+                        st.session_state.diet_plans_result = {
                             "error": f"API request failed with HTTP {response.status_code}.",
                             "response": response_data,
-                            "menu_id": int(menu_id),
-                            "request_payload": payload,
                         }
                     else:
-                        st.session_state.recommendation_result = {
+                        st.session_state.diet_plans_result = {
                             "error": None,
                             "response": response_data,
-                            "menu_id": int(menu_id),
-                            "request_payload": payload,
                         }
                 except requests.RequestException as exc:
-                    st.session_state.recommendation_result = {
+                    st.session_state.diet_plans_result = {
                         "error": f"Could not reach the API: {exc}",
                         "response": None,
-                        "request_payload": payload,
                     }
+
+    diet_plans_result = st.session_state.diet_plans_result
+    selected_plan_daily_calories = None
+
+    if diet_plans_result:
+        if diet_plans_result.get("error"):
+            st.error(diet_plans_result["error"])
+            err_resp = diet_plans_result.get("response")
+            if err_resp and "detail" in err_resp and isinstance(err_resp["detail"], list):
+                for d in err_resp["detail"]:
+                    st.error(d.get("msg", "Validation Error"))
+            elif err_resp:
+                st.json(err_resp)
+        else:
+            plans_data = diet_plans_result.get("response", {})
+            plans = plans_data.get("plans", [])
+
+            if not plans:
+                st.warning("No plans returned from the engine.")
+            else:
+                st.divider()
+                st.subheader("Step 2: Recommendations")
+
+                plan_options = {p["speed"]: p for p in plans}
+                
+                st.markdown("#### Available Plans")
+                cols = st.columns(len(plans))
+                for idx, plan in enumerate(plans):
+                    with cols[idx]:
+                        speed = plan["speed"]
+                        st.info(f"**{speed.title()}**\n\n"
+                                f"**Calories:** {plan['daily_calories']} kcal\n\n"
+                                f"**Duration:** {plan.get('duration_weeks', 'N/A')} weeks\n\n"
+                                f"**Rate:** {plan.get('weekly_rate_kg', 'N/A')} kg/wk")
+
+                selected_speed = st.radio(
+                    "Select Your Preferred Plan",
+                    options=list(plan_options.keys()),
+                    format_func=lambda x: x.title(),
+                    horizontal=True
+                )
+                selected_plan = plan_options[selected_speed]
+                selected_plan_daily_calories = selected_plan["daily_calories"]
+
+                with st.container():
+                    col3, col4 = st.columns(2)
+                    with col3:
+                        st.subheader("Meals")
+                        breakfast_qty = st.number_input("Breakfast Qty", min_value=0, value=get_default_meal_quantity("breakfast"), step=1)
+                        lunch_qty = st.number_input("Lunch Qty", min_value=0, value=get_default_meal_quantity("lunch"), step=1)
+                        dinner_qty = st.number_input("Dinner Qty", min_value=0, value=get_default_meal_quantity("dinner"), step=1)
+                        snack_qty = st.number_input("Snack Qty", min_value=0, value=get_default_meal_quantity("snack"), step=1)
+                        drink_qty = st.number_input("Drink Qty", min_value=0, value=get_default_meal_quantity("drink"), step=1)
+                    with col4:
+                        st.subheader("Menu ID")
+                        menu_id = st.number_input("Menu ID", min_value=1, value=DEFAULT_REQUEST["menu_id"], step=1, label_visibility="collapsed")
+                        st.subheader("Delivery Days")
+                        days_options = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+                        selected_days = st.pills("Select Days", options=days_options, default=["Monday", "Tuesday"], selection_mode="multi", label_visibility="collapsed")
+                        if selected_days is None:
+                            selected_days = []
+                        number_of_days = len(selected_days)
+
+                if st.button("Generate Initial Recommendations", type="primary", use_container_width=True):
+                    meals_requested = []
+                    quantities = {"breakfast": breakfast_qty, "lunch": lunch_qty, "dinner": dinner_qty, "snack": snack_qty, "drink": drink_qty}
+                    for meal_type, quantity in quantities.items():
+                        if quantity > 0:
+                            meals_requested.append({"meal_type": meal_type, "quantity": int(quantity)})
+
+                    rec_payload = {
+                        "user_goal": selected_goal,
+                        "estimated_kcal_per_day": selected_plan_daily_calories,
+                        "menu_id": int(menu_id),
+                        "number_of_days": int(number_of_days),
+                        "meals": meals_requested,
+                    }
+
+                    st.session_state.save_status = None
+
+                    if not meals_requested:
+                        st.session_state.recommendation_result = {
+                            "error": "Add at least one meal with quantity greater than zero.",
+                            "response": None,
+                            "request_payload": rec_payload,
+                        }
+                    else:
+                        with st.spinner("Calculating Initial Recommendations..."):
+                            try:
+                                rec_response = requests.post(INITIAL_REC_API_URL, json=rec_payload, timeout=60)
+                                try:
+                                    rec_response_data = rec_response.json()
+                                except ValueError:
+                                    rec_response_data = {"detail": rec_response.text}
+
+                                if rec_response.status_code != 200:
+                                    st.session_state.recommendation_result = {
+                                        "error": f"API request failed with HTTP {rec_response.status_code}.",
+                                        "response": rec_response_data,
+                                        "menu_id": int(menu_id),
+                                        "request_payload": rec_payload,
+                                    }
+                                else:
+                                    st.session_state.recommendation_result = {
+                                        "error": None,
+                                        "response": rec_response_data,
+                                        "menu_id": int(menu_id),
+                                        "request_payload": rec_payload,
+                                    }
+                            except requests.RequestException as exc:
+                                st.session_state.recommendation_result = {
+                                    "error": f"Could not reach the API: {exc}",
+                                    "response": None,
+                                    "request_payload": rec_payload,
+                                }
 
     generated_result = st.session_state.recommendation_result
     if bool(generated_result and generated_result.get("request_payload") is not None):
         st.divider()
         st.subheader("Tester Feedback")
 
-        # Thumbs rating buttons with visual selection state
         rating_options = ["👍 Like", "👎 Dislike"]
-
-        # Determine current selection index
         current_index = None
         if st.session_state.tester_feedback_rating == "like":
             current_index = 0
@@ -453,13 +531,11 @@ with left_panel:
             label_visibility="collapsed"
         )
 
-        # Update session state based on selection
         if rating_value == "👍 Like":
             st.session_state.tester_feedback_rating = "like"
         elif rating_value == "👎 Dislike":
             st.session_state.tester_feedback_rating = "dislike"
 
-        # Optional comment field
         st.text_area(
             "Comments (Optional)",
             key="tester_feedback_comment",
@@ -473,7 +549,6 @@ with left_panel:
             rating = st.session_state.tester_feedback_rating
             comment = st.session_state.tester_feedback_comment.strip()
 
-            # Validation: require either rating or comment
             if rating is None and not comment:
                 st.session_state.save_status = {
                     "type": "error",
@@ -487,13 +562,12 @@ with left_panel:
             else:
                 try:
                     with st.spinner("Saving test run..."):
-                        # Build structured feedback dict
                         feedback_dict = {
                             "rating": rating,
                             "comment": comment
                         }
                         inserted_id = save_test_run_to_mongo(
-                            MONGO_COLLECTION_NAME,
+                            MONGO_FIRST_REC_FEEDBACK_COLLECTION,
                             r_payload,
                             r_response,
                             feedback_dict

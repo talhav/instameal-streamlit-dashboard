@@ -3,7 +3,7 @@ from collections import defaultdict
 import requests
 import streamlit as st
 
-from shared.config import NTH_API_URL, NTH_PAYLOAD_API_URL, MONGO_NTH_COLLECTION_NAME
+from shared.config import NTH_REC_API_URL, NTH_REC_USER_DATA_FETCH_URL, MONGO_NTH_REC_FEEDBACK_COLLECTION
 from shared.db import get_all_menu_products, save_test_run_to_mongo, get_all_users
 from shared.styles import inject_styles
 from shared.components import build_card_html
@@ -898,7 +898,7 @@ with left_panel:
         with st.spinner(f"Fetching payload for user {st.session_state.nth_user_id}..."):
             try:
                 uid = int(st.session_state.nth_user_id)
-                resp = requests.get(NTH_PAYLOAD_API_URL, params={"user_id": uid}, timeout=15)
+                resp = requests.get(NTH_REC_USER_DATA_FETCH_URL, params={"user_id": uid}, timeout=15)
                 rdata = resp.json()
                 if resp.status_code == 200 and rdata.get("statusCode") == 200:
                     load_payload_into_state(rdata["data"]["payload"])
@@ -1176,7 +1176,7 @@ with left_panel:
 
             with st.spinner("Calling Nth Endpoint..."):
                 try:
-                    response = requests.post(NTH_API_URL, json=payload, timeout=120)
+                    response = requests.post(NTH_REC_API_URL, json=payload, timeout=120)
                     try:
                         response_data = response.json()
                     except ValueError:
@@ -1270,7 +1270,7 @@ with left_panel:
                                 "comment": comment
                             }
                             inserted_id = save_test_run_to_mongo(
-                                MONGO_NTH_COLLECTION_NAME,
+                                MONGO_NTH_REC_FEEDBACK_COLLECTION,
                                 r_payload,
                                 r_response,
                                 feedback_dict
