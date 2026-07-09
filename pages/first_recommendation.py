@@ -170,7 +170,40 @@ def render_recommendation_panel(result):
     response_data = result.get("response", {})
     menu_id = result.get("menu_id")
 
-    st.success(f"Estimated calories per day: {response_data.get('est_calories_per_day', 'Unknown')}")
+    st.success(f"Estimated calories per day: {response_data.get('est_calories_per_day', 'Unknown')} kcal")
+
+    target_macros = response_data.get("target_macros_per_day")
+    est_macros = response_data.get("est_macros_per_day")
+
+    if target_macros:
+        st.subheader("Daily Macro Targets")
+        t1, t2, t3 = st.columns(3)
+        t1.metric("Protein", f"{target_macros.get('protein_g', 0)} g")
+        t2.metric("Carbs", f"{target_macros.get('carbs_g', 0)} g")
+        t3.metric("Fat", f"{target_macros.get('fat_g', 0)} g")
+
+        if est_macros:
+            st.caption("Estimated from selected products")
+            e1, e2, e3 = st.columns(3)
+            e1.metric(
+                "Protein",
+                f"{est_macros.get('protein_g', 0)} g",
+                delta=f"{est_macros.get('protein_g', 0) - target_macros.get('protein_g', 0):+d} g vs target",
+                delta_color="off",
+            )
+            e2.metric(
+                "Carbs",
+                f"{est_macros.get('carbs_g', 0)} g",
+                delta=f"{est_macros.get('carbs_g', 0) - target_macros.get('carbs_g', 0):+d} g vs target",
+                delta_color="off",
+            )
+            e3.metric(
+                "Fat",
+                f"{est_macros.get('fat_g', 0)} g",
+                delta=f"{est_macros.get('fat_g', 0) - target_macros.get('fat_g', 0):+d} g vs target",
+                delta_color="off",
+            )
+            st.caption("⚠️ Est. macros may be an underestimate — products with no DB macro data contribute zero.")
 
     recommendations = response_data.get("recommendations", [])
     if not recommendations:
