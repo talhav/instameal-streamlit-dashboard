@@ -424,8 +424,16 @@ with left_panel:
 
     st.divider()
 
-    meals_column, delivery_column = st.columns(2)
-    with meals_column:
+    menu_meals_column, delivery_column = st.columns(2)
+    with menu_meals_column:
+        st.subheader("Menu ID")
+        st.number_input(
+            "Menu ID",
+            min_value=1,
+            step=1,
+            key="nth_menu_id",
+            label_visibility="collapsed",
+        )
         st.subheader("Meals")
         for meal_type in MEAL_TYPES:
             st.number_input(
@@ -436,14 +444,6 @@ with left_panel:
             )
 
     with delivery_column:
-        st.subheader("Menu ID")
-        st.number_input(
-            "Menu ID",
-            min_value=1,
-            step=1,
-            key="nth_menu_id",
-            label_visibility="collapsed",
-        )
         st.subheader("Delivery Days")
         selected_days = st.pills(
             "Select Days",
