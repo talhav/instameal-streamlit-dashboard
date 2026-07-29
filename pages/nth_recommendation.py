@@ -34,7 +34,7 @@ DELIVERY_DAYS = (
     "Saturday",
 )
 DEFAULT_MENU_ID = 104
-DEFAULT_SELECTED_DAYS = ["Monday", "Tuesday"]
+DEFAULT_SELECTED_DAYS = ["Monday", "Tuesday", "Wednesday"]
 
 
 def normalize_meal_type(raw_meal_type):

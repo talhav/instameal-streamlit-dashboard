@@ -134,6 +134,20 @@ Open [http://localhost:8501](http://localhost:8501)
 - Meal types with a quantity of zero are omitted from the request.
 - The request timeout defaults to 300 seconds to accommodate the LLM-backed Nth recommendation call.
 
+### Pre-filled Default Values
+
+Once a user is selected, the form loads with the following defaults — all of which the tester can freely adjust before hitting **Generate Nth Recommendations**:
+
+| Field | Default Value |
+| --------------------- | ------------------------------------ |
+| **Menu ID** | `104` |
+| **Breakfast Qty** | `1` |
+| **Lunch Qty** | `1` |
+| **Dinner Qty** | `1` |
+| **Snack Qty** | `1` |
+| **Drink Qty** | `1` |
+| **Delivery Days** | `Monday`, `Tuesday`, `Wednesday` (3) |
+
 ---
 
 ## MongoDB Document Schema
