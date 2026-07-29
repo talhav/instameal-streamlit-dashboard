@@ -1,7 +1,9 @@
-import psycopg2
-import streamlit as st
 from datetime import datetime, timezone
+
+import psycopg2
 from pymongo import MongoClient
+from psycopg2.pool import ThreadedConnectionPool
+import streamlit as st
 
 from shared.config import (
     DEFAULT_DB_NAME,
@@ -15,29 +17,61 @@ from shared.config import (
 from shared.components import parse_nutrition_data
 
 
-def _get_readonly_postgres_connection():
-    """Open a PostgreSQL connection that cannot start read-write transactions."""
-    connection = psycopg2.connect(
+POSTGRES_POOL_MIN_CONNECTIONS = 1
+POSTGRES_POOL_MAX_CONNECTIONS = 4
+POSTGRES_QUERY_ATTEMPTS = 2
+
+
+@st.cache_resource(show_spinner=False)
+def _get_readonly_postgres_pool():
+    """Create the process-wide pool used for read-only PostgreSQL queries."""
+    return ThreadedConnectionPool(
+        minconn=POSTGRES_POOL_MIN_CONNECTIONS,
+        maxconn=POSTGRES_POOL_MAX_CONNECTIONS,
         dbname=DEFAULT_DB_NAME,
         user=DEFAULT_DB_USER,
         password=DEFAULT_DB_PASSWORD,
         host=DEFAULT_DB_HOST,
         port=DEFAULT_DB_PORT,
+        application_name="instameal-streamlit-dashboard",
+        connect_timeout=30,
+        options="-c default_transaction_read_only=on",
     )
-    connection.set_session(readonly=True, autocommit=True)
-    return connection
 
 
-@st.cache_data(ttl=600)
+def _fetchall_readonly(query, params=None):
+    """Execute a read-only query, replacing a stale pooled connection once."""
+    pool = _get_readonly_postgres_pool()
+    last_connection_error = None
+
+    for attempt in range(POSTGRES_QUERY_ATTEMPTS):
+        connection = None
+        discard_connection = False
+        try:
+            connection = pool.getconn()
+            connection.set_session(readonly=True, autocommit=True)
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                return cursor.fetchall()
+        except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
+            last_connection_error = exc
+            discard_connection = True
+            if attempt == POSTGRES_QUERY_ATTEMPTS - 1:
+                raise
+        finally:
+            if connection is not None:
+                pool.putconn(connection, close=discard_connection)
+
+    raise last_connection_error
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def get_all_menu_products(menu_id):
     if not menu_id:
         return []
 
     try:
-        connection = _get_readonly_postgres_connection()
-        cursor = connection.cursor()
-
-        cursor.execute(
+        rows = _fetchall_readonly(
             """
             SELECT p.id, p.title, p.description, p.image, p.nutrition_per_serving, p.meal_type
             FROM products p
@@ -48,7 +82,7 @@ def get_all_menu_products(menu_id):
         )
 
         db_results = []
-        for row in cursor.fetchall():
+        for row in rows:
             nutrition_data = parse_nutrition_data(row[4])
             meal_types = [m.lower() for m in (row[5] or [])]
             db_results.append({
@@ -60,14 +94,13 @@ def get_all_menu_products(menu_id):
                 "meal_types": meal_types
             })
 
-        cursor.close()
-        connection.close()
         return db_results
     except Exception as e:
         st.error(f"DB Connection Error: {e}")
         return []
 
-@st.cache_data(ttl=600)
+
+@st.cache_data(ttl=600, show_spinner="Loading active users...")
 def get_all_users():
     """
     Fetch all active (non-deleted) users from the database.
@@ -77,10 +110,7 @@ def get_all_users():
               Returns empty list if no users found or on error.
     """
     try:
-        connection = _get_readonly_postgres_connection()
-        cursor = connection.cursor()
-
-        cursor.execute(
+        rows = _fetchall_readonly(
             """
             SELECT id, email, name
             FROM public.users
@@ -90,19 +120,18 @@ def get_all_users():
         )
 
         users = []
-        for row in cursor.fetchall():
+        for row in rows:
             users.append({
                 "id": row[0],
                 "email": row[1] or "No email",
                 "name": row[2] or "Unknown"
             })
 
-        cursor.close()
-        connection.close()
         return users
     except Exception as e:
         st.error(f"DB Connection Error (users): {e}")
         return []
+
 
 def save_test_run_to_mongo(collection_name, request_payload, response_payload, feedback):
     """

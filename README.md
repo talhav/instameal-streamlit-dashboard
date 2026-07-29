@@ -126,7 +126,9 @@ Open [http://localhost:8501](http://localhost:8501)
 
 ### Current Nth UI Behavior
 
+- The request controls stay hidden until the tester explicitly selects an active user.
 - The user dropdown is populated directly from `public.users` where `deleted_at IS NULL`; no user-data GET endpoint is called.
+- PostgreSQL reads reuse a bounded, read-only connection pool to avoid repeated remote connection handshakes.
 - The request contains only `user_id`, `menu_id`, `number_of_days`, and `meals`.
 - `number_of_days` is derived from the selected delivery-day pills.
 - Meal types with a quantity of zero are omitted from the request.
