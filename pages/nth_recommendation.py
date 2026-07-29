@@ -453,9 +453,6 @@ with left_panel:
             key="nth_selected_days",
         )
         selected_days = selected_days or []
-        st.caption(
-            f"{len(selected_days)} delivery day(s) selected for `number_of_days`."
-        )
 
     if st.button(
         "Generate Nth Recommendations",
