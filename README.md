@@ -18,12 +18,11 @@ Tests the initial `POST /api/v1/initial-recommendations` endpoint.
 
 Tests the continuity `POST /api/v1/nth-recommendations` endpoint — used for week 2, 3, etc. of a user's diet plan.
 
-- Set user stats (menu ID, current weight, target weight, goal, step count, plan dates).
-- Build a **Weekly Weights History** with individually add/remove-able entries.
-- Track **Internal Meals** (ordered via Instameals) and **External Meals** (off-platform), each with optional granular nutrition fields.
-- Configure **Previous Recommendations** for up to 3 historical weeks, with their own per-meal lists.
+- Select an active user directly from the PostgreSQL-backed dropdown.
+- Enter a menu ID and configure meal quantities and delivery days.
+- Send the minimal request contract; the recommendation service loads user history from its database using `user_id`.
 - Shows a request payload inspector in the left panel and a response payload inspector in the right panel.
-- Renders product cards from the flat `products[]` response, grouping them by `meal_types[]` and showing a ⭐ badge for `recommended=true` items.
+- Renders product cards from the flat `products[]` response, grouped by `assigned_meal_type`.
 - Displays the backend `reason` text directly on each product card.
 - Saves test runs to a **separate** MongoDB collection from the First Recommendation page.
 
@@ -35,11 +34,12 @@ Tests the continuity `POST /api/v1/nth-recommendations` endpoint — used for we
 instameal-streamlit-dashboard/
 ├── app.py                          # Entry point — multi-page navigation router
 ├── pages/
-│   ├── 01_first_recommendation.py  # First Recommendation testing UI
-│   └── 02_nth_recommendation.py    # Nth Recommendation testing UI
+│   ├── first_recommendation.py     # First Recommendation testing UI
+│   └── nth_recommendation.py       # Nth Recommendation testing UI
 ├── shared/
 │   ├── config.py                   # Environment variable definitions
-│   ├── db.py                       # PostgreSQL (product fetch) & MongoDB (save) queries
+│   ├── db.py                       # Read-only PostgreSQL fetches & MongoDB saves
+│   ├── payloads.py                 # Minimal request payload builders
 │   ├── styles.py                   # Injected CSS — card styles, form entry cards
 │   └── components.py               # Shared HTML card builders (build_card_html, etc.)
 ├── .env                            # Local environment variables (never committed)
@@ -82,6 +82,7 @@ copy .env.example .env
 | `DB_USER`                   | PostgreSQL username                                   |
 | `DB_PASSWORD`               | PostgreSQL password                                   |
 | `NTH_REC_API_URL`               | Nth Recommendation endpoint URL                       |
+| `NTH_REC_API_TIMEOUT_SECONDS`   | Nth API timeout in seconds (default: `300`)            |
 | `MONGO_URI`                 | MongoDB connection string                             |
 | `MONGO_DB_NAME`             | Target MongoDB database name                          |
 | `MONGO_FIRST_REC_FEEDBACK_COLLECTION`     | MongoDB collection for First Recommendation test runs |
@@ -116,22 +117,20 @@ Open [http://localhost:8501](http://localhost:8501)
 ### Nth Recommendation
 
 1. Select the **Nth Recommendation** page from the sidebar.
-2. Fill in the user stats section (menu ID, weights, goal, step count, dates).
-3. Add/remove **Weekly Weight** history entries using the `＋ Add` / `− Remove` buttons.
-4. Add **Internal Meals** (Instameals orders) and **External Meals** (off-platform) with optional nutrition fields.
-5. Enable previous week recommendation blocks and fill in their meal data.
-6. Click **Generate Nth Recommendations**.
-7. Review product cards grouped by meal type — cards show the recommendation flag, meal-type membership, and the backend reason text.
-8. Inspect the request payload in the left-panel JSON expander and the response payload in the right-panel JSON expander.
-9. Enter feedback and click **Save Nth Test Run** — saved to `MONGO_NTH_REC_FEEDBACK_COLLECTION`.
+2. Select an active user from the PostgreSQL-backed email dropdown.
+3. Enter the menu ID, choose delivery days, and set the per-day meal quantities.
+4. Click **Generate Nth Recommendations**.
+5. Review product cards grouped by meal type, including the backend reason text.
+6. Inspect the request payload in the left-panel JSON expander and the response payload in the right-panel JSON expander.
+7. Enter feedback and click **Save Nth Test Run** — saved to `MONGO_NTH_REC_FEEDBACK_COLLECTION`.
 
 ### Current Nth UI Behavior
 
-- The Nth request form no longer exposes a recommended calorie count input.
-- Nutrition inputs for internal, external, and previous-week meals are expanded by default for easier editing.
-- Previous recommendations are entered as week-based blocks with add/remove controls for both weeks and meals.
-- Products that belong to multiple meal types are shown in each applicable meal section.
-- The request timeout is set to 120 seconds to accommodate slower Nth recommendations.
+- The user dropdown is populated directly from `public.users` where `deleted_at IS NULL`; no user-data GET endpoint is called.
+- The request contains only `user_id`, `menu_id`, `number_of_days`, and `meals`.
+- `number_of_days` is derived from the selected delivery-day pills.
+- Meal types with a quantity of zero are omitted from the request.
+- The request timeout defaults to 300 seconds to accommodate the LLM-backed Nth recommendation call.
 
 ---
 
@@ -155,12 +154,12 @@ The collection used depends on the page:
 
 For the Nth page, the stored request payload reflects the current contract:
 
-- `stats` includes `current_weight_kg`, `target_weight_kg`, `goal`, `step_count`, `weekly_weights`, and date fields
-- `meal_data.consumed_meal_internal` is an array of meals with optional `rating`, `date`, and `nutrition_per_serving`
-- `meal_data.consumed_meal_external` is grouped by ordinal week keys such as `1st_week` and `2nd_week`
-- `previous_recommendations` is grouped by ordinal week keys and stores meal lists for each enabled week
+- `user_id` identifies the user whose history the recommendation service loads.
+- `menu_id` identifies the active menu.
+- `number_of_days` is the selected delivery-day count.
+- `meals` contains only positive-quantity meal requests.
 
-The response payload stored in MongoDB is the raw backend response, including the flat `products[]` array with `product_id`, `meal_types[]`, `recommended`, and `reason`.
+The response payload stored in MongoDB is the raw backend response, including the flat `products[]` array with `product_id`, `assigned_meal_type`, `quantity`, and `reason`.
 
 ---
 
