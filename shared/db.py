@@ -14,19 +14,27 @@ from shared.config import (
 )
 from shared.components import parse_nutrition_data
 
+
+def _get_readonly_postgres_connection():
+    """Open a PostgreSQL connection that cannot start read-write transactions."""
+    connection = psycopg2.connect(
+        dbname=DEFAULT_DB_NAME,
+        user=DEFAULT_DB_USER,
+        password=DEFAULT_DB_PASSWORD,
+        host=DEFAULT_DB_HOST,
+        port=DEFAULT_DB_PORT,
+    )
+    connection.set_session(readonly=True, autocommit=True)
+    return connection
+
+
 @st.cache_data(ttl=600)
 def get_all_menu_products(menu_id):
     if not menu_id:
         return []
 
     try:
-        connection = psycopg2.connect(
-            dbname=DEFAULT_DB_NAME,
-            user=DEFAULT_DB_USER,
-            password=DEFAULT_DB_PASSWORD,
-            host=DEFAULT_DB_HOST,
-            port=DEFAULT_DB_PORT,
-        )
+        connection = _get_readonly_postgres_connection()
         cursor = connection.cursor()
 
         cursor.execute(
@@ -69,13 +77,7 @@ def get_all_users():
               Returns empty list if no users found or on error.
     """
     try:
-        connection = psycopg2.connect(
-            dbname=DEFAULT_DB_NAME,
-            user=DEFAULT_DB_USER,
-            password=DEFAULT_DB_PASSWORD,
-            host=DEFAULT_DB_HOST,
-            port=DEFAULT_DB_PORT,
-        )
+        connection = _get_readonly_postgres_connection()
         cursor = connection.cursor()
 
         cursor.execute(
