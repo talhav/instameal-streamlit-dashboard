@@ -432,80 +432,88 @@ with left_panel:
             on_change=reset_nth_run_for_user_change,
         )
 
-        if selected_user_id is None:
-            st.info("Select an active user to configure the request.")
-        else:
+        if selected_user_id is not None:
             selected_user = users_by_id[selected_user_id]
             st.caption(
                 f"Selected user: {selected_user['name']} · ID {selected_user_id}"
             )
-            st.divider()
 
-            menu_meals_column, delivery_column = st.columns(2)
-            with menu_meals_column:
-                st.subheader("Menu ID")
-                st.number_input(
-                    "Menu ID",
-                    min_value=1,
-                    step=1,
-                    key="nth_menu_id",
-                    label_visibility="collapsed",
-                )
-                st.subheader("Meals")
-                for meal_type in MEAL_TYPES:
-                    st.number_input(
-                        f"{meal_type.title()} Qty",
-                        min_value=0,
-                        step=1,
-                        key=f"nth_meal_qty_{meal_type}",
+    st.divider()
+
+    menu_meals_column, delivery_column = st.columns(2)
+    with menu_meals_column:
+        st.subheader("Menu ID")
+        st.number_input(
+            "Menu ID",
+            min_value=1,
+            step=1,
+            key="nth_menu_id",
+            label_visibility="collapsed",
+        )
+        st.subheader("Meals")
+        for meal_type in MEAL_TYPES:
+            st.number_input(
+                f"{meal_type.title()} Qty",
+                min_value=0,
+                step=1,
+                key=f"nth_meal_qty_{meal_type}",
+            )
+
+    with delivery_column:
+        st.subheader("Delivery Days")
+        selected_days = st.pills(
+            "Select Days",
+            options=DELIVERY_DAYS,
+            selection_mode="multi",
+            label_visibility="collapsed",
+            key="nth_selected_days",
+        )
+        selected_days = selected_days or []
+
+    if st.button(
+        "Generate Nth Recommendations",
+        type="primary",
+        use_container_width=True,
+    ):
+        st.session_state.nth_save_status = None
+
+        if selected_user_id is None:
+            st.session_state.nth_result = {
+                "error": "Please select an active user before generating recommendations.",
+                "response": None,
+                "menu_id": st.session_state.nth_menu_id,
+                "request_payload": None,
+            }
+        else:
+            meal_quantities = {
+                meal_type: st.session_state[f"nth_meal_qty_{meal_type}"]
+                for meal_type in MEAL_TYPES
+            }
+            payload = build_nth_recommendation_payload(
+                user_id=selected_user_id,
+                menu_id=st.session_state.nth_menu_id,
+                selected_days=selected_days,
+                meal_quantities=meal_quantities,
+            )
+
+            validation_errors = validate_nth_recommendation_payload(payload)
+
+            if validation_errors:
+                st.session_state.nth_result = {
+                    "error": " ".join(validation_errors),
+                    "response": None,
+                    "menu_id": payload["menu_id"],
+                    "request_payload": payload,
+                }
+            else:
+                with st.spinner("Calling Nth Endpoint..."):
+                    st.session_state.nth_result = call_nth_recommendation_api(
+                        payload
                     )
 
-            with delivery_column:
-                st.subheader("Delivery Days")
-                selected_days = st.pills(
-                    "Select Days",
-                    options=DELIVERY_DAYS,
-                    selection_mode="multi",
-                    label_visibility="collapsed",
-                    key="nth_selected_days",
-                )
-                selected_days = selected_days or []
-
-            if st.button(
-                "Generate Nth Recommendations",
-                type="primary",
-                use_container_width=True,
-            ):
-                st.session_state.nth_save_status = None
-                meal_quantities = {
-                    meal_type: st.session_state[f"nth_meal_qty_{meal_type}"]
-                    for meal_type in MEAL_TYPES
-                }
-                payload = build_nth_recommendation_payload(
-                    user_id=selected_user_id,
-                    menu_id=st.session_state.nth_menu_id,
-                    selected_days=selected_days,
-                    meal_quantities=meal_quantities,
-                )
-
-                validation_errors = validate_nth_recommendation_payload(payload)
-
-                if validation_errors:
-                    st.session_state.nth_result = {
-                        "error": " ".join(validation_errors),
-                        "response": None,
-                        "menu_id": payload["menu_id"],
-                        "request_payload": payload,
-                    }
-                else:
-                    with st.spinner("Calling Nth Endpoint..."):
-                        st.session_state.nth_result = call_nth_recommendation_api(
-                            payload
-                        )
-
-            st.divider()
-            render_request_payload_panel(st.session_state.nth_result)
-            render_feedback_panel(st.session_state.nth_result)
+    st.divider()
+    render_request_payload_panel(st.session_state.nth_result)
+    render_feedback_panel(st.session_state.nth_result)
 
 with right_panel:
     render_nth_recommendation_panel(st.session_state.nth_result)
